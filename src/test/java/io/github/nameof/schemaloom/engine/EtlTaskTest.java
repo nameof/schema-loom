@@ -9,6 +9,7 @@ import io.github.nameof.schemaloom.source.MemorySource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import io.github.nameof.schemaloom.target.MemoryTarget;
 import io.github.nameof.schemaloom.transform.FieldMapping;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.*;
@@ -105,6 +106,6 @@ public class EtlTaskTest {
 
                 .targetMode(TargetMode.REPLACE)
                 .build().run();
-        System.out.println(result);
+        assertSame(result.getStatus(), EtlStatus.SUCCESS);
     }
 }

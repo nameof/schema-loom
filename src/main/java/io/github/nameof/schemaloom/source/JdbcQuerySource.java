@@ -71,7 +71,7 @@ public final class JdbcQuerySource implements Source {
                         b.add(new DataRecord(sc, v));
                         if (b.size() == fetchSize) {
                             c.accept(new RecordBatch(sc, b));
-                            b = new ArrayList<DataRecord>();
+                            b = new ArrayList<>();
                         }
                     }
                     if (!b.isEmpty()) c.accept(new RecordBatch(sc, b));

@@ -25,14 +25,14 @@ public final class FieldMapping {
 
     public static RecordSchema mapSchema(RecordSchema source, List<FieldMapping> mappings) {
         List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source) : mappings;
-        List<FieldSchema> fs = new ArrayList<FieldSchema>();
-        Set<String> seen = new HashSet<String>();
+        List<FieldSchema> fs = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
         for (FieldMapping m : ms) {
             FieldSchema f = source.field(m.source);
             if (!seen.add(m.target)) throw new IllegalArgumentException("duplicate target field: " + m.target);
             fs.add(new FieldSchema(m.target, f.getLogicalType(), f.isNullable(), f.getLength(), f.getPrecision(), f.getScale()));
         }
-        List<String> keys = new ArrayList<String>();
+        List<String> keys = new ArrayList<>();
         for (String k : source.getPrimaryKeyFields())
             for (FieldMapping m : ms) if (m.source.equals(k)) keys.add(m.target);
         return new RecordSchema(fs, keys);

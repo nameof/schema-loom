@@ -4,6 +4,8 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.engine.EtlTask;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import io.github.nameof.schemaloom.metadata.DatabaseMetadataService;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.source.JdbcTableSource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import org.junit.Assume;
@@ -19,9 +21,9 @@ import static org.junit.Assert.*;
 public class JdbcEtlIntegrationTest {
     @Test
     public void migratesSelectedTableAndVerifiesRows() throws Exception {
-        String url = System.getenv("SCHEMALOOM_IT_MYSQL_URL");
-        String user = System.getenv("SCHEMALOOM_IT_MYSQL_USER");
-        String password = System.getenv("SCHEMALOOM_IT_MYSQL_PASSWORD");
+        String url = "jdbc:mysql://localhost:3306/hxl";//System.getenv("SCHEMALOOM_IT_MYSQL_URL");
+        String user = "root";//System.getenv("SCHEMALOOM_IT_MYSQL_USER");
+        String password = "root";//System.getenv("SCHEMALOOM_IT_MYSQL_PASSWORD");
         Assume.assumeTrue("set SCHEMALOOM_IT_MYSQL_URL/USER/PASSWORD to run MySQL integration test", url != null && user != null && password != null);
         JdbcConnectionProvider setup = new JdbcConnectionProvider(url, user, password);
         Connection c = setup.getConnection();
@@ -31,6 +33,11 @@ public class JdbcEtlIntegrationTest {
         st.execute("CREATE TABLE schemaloom_source (id INT PRIMARY KEY, name VARCHAR(100), amount DECIMAL(12,2))");
         st.execute("INSERT INTO schemaloom_source VALUES (1, 'alpha', 10.50), (2, 'beta', 20.75), (3, 'gamma', 0.00)");
         st.close();
+        TableInfo metadata = new DatabaseMetadataService().getTable(setup,
+                new QualifiedTableName(null, null, "schemaloom_source"));
+        assertEquals(3, metadata.getColumns().size());
+        assertNotNull(metadata.getPrimaryKey());
+        assertEquals("id", metadata.getPrimaryKey().getColumns().get(0));
         setup.close();
 
         EtlResult result = EtlTask.builder()
@@ -50,7 +57,11 @@ public class JdbcEtlIntegrationTest {
             assertNotNull(rs.getString("name"));
         }
         rs.close();
-        verify.close();
         assertEquals(3, count);
+        TableInfo targetMetadata = new DatabaseMetadataService().getTable(verify,
+                new QualifiedTableName(null, null, "schemaloom_target"));
+        assertNotNull(targetMetadata.getPrimaryKey());
+        assertEquals("id", targetMetadata.getPrimaryKey().getColumns().get(0));
+        verify.close();
     }
 }

@@ -9,6 +9,7 @@ import java.util.*;
 
 public final class JdbcTableSource implements Source {
     private final JdbcQuerySource delegate;
+    private final RecordSchema tableSchema;
 
     public JdbcTableSource(ConnectionProvider p, QualifiedTableName t) {
         this(p, t, 1000);
@@ -16,6 +17,8 @@ public final class JdbcTableSource implements Source {
 
     public JdbcTableSource(ConnectionProvider p, QualifiedTableName t, int fetchSize) {
         try {
+            TableInfo tableInfo = new DatabaseMetadataService().getTable(p, t);
+            tableSchema = tableInfo.getSchema();
             String qmark = p.getConnection().getMetaData().getIdentifierQuoteString();
             String q = (qmark == null || qmark.trim().isEmpty()) ? "" : qmark.trim();
             StringBuilder sql = new StringBuilder("SELECT * FROM ");
@@ -34,11 +37,17 @@ public final class JdbcTableSource implements Source {
     }
 
     public RecordSchema schema() {
-        return delegate.schema();
+        return tableSchema;
     }
 
     public void read(BatchConsumer c) {
-        delegate.read(c);
+        delegate.read(batch -> {
+            List<DataRecord> records = new ArrayList<DataRecord>(batch.size());
+            for (DataRecord record : batch.getRecords()) {
+                records.add(new DataRecord(tableSchema, record.getValues()));
+            }
+            c.accept(new RecordBatch(tableSchema, records));
+        });
     }
 
     public void close() {
