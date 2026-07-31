@@ -1,0 +1,7 @@
+target/
+.idea/
+*.iml
+drivers/
+*.log
+.env
+.env.*
