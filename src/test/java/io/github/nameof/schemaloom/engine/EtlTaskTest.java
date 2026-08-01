@@ -1,8 +1,8 @@
 package io.github.nameof.schemaloom.engine;
 
+import cn.hutool.core.bean.BeanUtil;
 import io.github.nameof.schemaloom.api.*;
-import io.github.nameof.schemaloom.driver.DatabaseType;
-import io.github.nameof.schemaloom.driver.JdbcConnectionProvider;
+import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.source.JdbcTableSource;
 import io.github.nameof.schemaloom.source.MemorySource;
@@ -10,6 +10,7 @@ import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import io.github.nameof.schemaloom.target.MemoryTarget;
 import io.github.nameof.schemaloom.transform.FieldMapping;
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.Test;
 
 import java.util.*;
@@ -96,16 +97,23 @@ public class EtlTaskTest {
 
     @Test
     public void localTest() {
-        EtlResult result = EtlTask.builder()
-                .source(new JdbcTableSource(
-                        new JdbcConnectionProvider("jdbc:mysql://localhost:3306/hxl", "root", "root"),
-                        new QualifiedTableName(null, null, "jsh_account")))
-                .target(new JdbcTableTarget(
-                        new JdbcConnectionProvider("jdbc:mysql://localhost:3306/hxl2", "root", "root"),
-                        "a", DatabaseType.MYSQL))
+        String driverId = "mysql8";
+        JdbcDriverLoader loader = new JdbcDriverLoader();
 
-                .targetMode(TargetMode.REPLACE)
-                .build().run();
-        assertSame(result.getStatus(), EtlStatus.SUCCESS);
+        Properties properties = new Properties();
+        properties.setProperty("user", "root");
+        properties.setProperty("password", "root");
+        try {
+            EtlResult result = EtlTask.builder()
+                    .source(new JdbcTableSource(loader.connect(DatabaseType.MYSQL, "jdbc:mysql://localhost:3306/hxl", driverId, properties),
+                            new QualifiedTableName(null, null, "jsh_account")))
+                    .target(new JdbcTableTarget(loader.connect(DatabaseType.MYSQL, "jdbc:mysql://localhost:3306/hxl2", driverId, properties),
+                            "a", DatabaseType.MYSQL))
+                    .targetMode(TargetMode.REPLACE)
+                    .build().run();
+            assertSame(result.getStatus(), EtlStatus.SUCCESS);
+        } finally {
+            loader.close();
+        }
     }
 }

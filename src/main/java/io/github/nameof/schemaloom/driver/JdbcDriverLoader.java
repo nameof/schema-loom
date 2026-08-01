@@ -1,6 +1,8 @@
 package io.github.nameof.schemaloom.driver;
 
 import io.github.nameof.schemaloom.api.SchemaLoomException;
+import cn.hutool.core.util.ReUtil;
+import cn.hutool.core.util.StrUtil;
 
 import java.net.*;
 import java.nio.file.*;
@@ -11,14 +13,27 @@ public final class JdbcDriverLoader implements AutoCloseable {
     private final List<DriverDescriptor> descriptors;
     private final Map<String, Entry> cache = new HashMap<String, Entry>();
 
+    public JdbcDriverLoader() {
+        this.descriptors = new DriverDescriptorLoader().load();
+    }
+
     public JdbcDriverLoader(Path root) {
         descriptors = new DriverDescriptorLoader().load(root);
     }
 
+    public List<DriverDescriptor> getDescriptors() {
+        return Collections.unmodifiableList(descriptors);
+    }
+
     public synchronized ConnectionProvider connect(String url, String driverId, Properties properties) {
+        return connect(null, url, driverId, properties);
+    }
+
+    public synchronized ConnectionProvider connect(DatabaseType type, String url, String driverId, Properties properties) {
         List<DriverDescriptor> candidates = new ArrayList<DriverDescriptor>();
         for (DriverDescriptor d : descriptors)
-            if ((driverId == null || driverId.equals(d.getId())) && d.getUrlPrefixes().isEmpty() || (!d.getUrlPrefixes().isEmpty() && matches(d, url) && (driverId == null || driverId.equals(d.getId()))))
+            if ((driverId == null || driverId.equals(d.getId())) && (type == null || type == d.getDatabaseType())
+                    && (driverId != null || d.getUrlPrefixes().isEmpty() || matches(d, url)))
                 candidates.add(d);
         Collections.sort(candidates, new Comparator<DriverDescriptor>() {
             public int compare(DriverDescriptor a, DriverDescriptor b) {
@@ -27,6 +42,7 @@ public final class JdbcDriverLoader implements AutoCloseable {
             }
         });
         if (driverId != null && candidates.isEmpty()) throw new SchemaLoomException("driver not found: " + driverId);
+        if (candidates.isEmpty()) throw new SchemaLoomException("no JDBC driver matches URL: " + url);
         Throwable last = null;
         for (DriverDescriptor d : candidates)
             try {
@@ -39,7 +55,7 @@ public final class JdbcDriverLoader implements AutoCloseable {
     }
 
     private boolean matches(DriverDescriptor d, String url) {
-        for (String p : d.getUrlPrefixes()) if (url.startsWith(p)) return true;
+        for (String p : d.getUrlPrefixes()) if (StrUtil.startWith(url, p)) return true;
         return false;
     }
 
@@ -61,6 +77,10 @@ public final class JdbcDriverLoader implements AutoCloseable {
             try {
                 c.close();
             } catch (SQLException ignored) {
+            }
+            if (e.refs == 0) {
+                cache.remove(d.getId());
+                try { e.loader.close(); } catch (Exception ignored) { }
             }
             throw new SQLException("server version is outside driver range");
         }
@@ -112,7 +132,9 @@ public final class JdbcDriverLoader implements AutoCloseable {
 
         private static int cmp(String a, String b) {
             if (b.isEmpty()) return 0;
-            String[] x = a.replaceAll("[^0-9.].*$", "").split("\\.");
+            String numeric = ReUtil.getGroup0("\\d+(?:\\.\\d+)*", StrUtil.emptyIfNull(a));
+            if (StrUtil.isBlank(numeric)) return -1;
+            String[] x = numeric.split("\\.");
             String[] y = b.split("\\.");
             for (int i = 0; i < Math.max(x.length, y.length); i++) {
                 int m = i < x.length && !x[i].isEmpty() ? Integer.parseInt(x[i]) : 0;

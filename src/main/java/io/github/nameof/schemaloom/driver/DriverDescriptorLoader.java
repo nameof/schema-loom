@@ -1,32 +1,36 @@
 package io.github.nameof.schemaloom.driver;
 
 import io.github.nameof.schemaloom.api.SchemaLoomException;
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.setting.dialect.Props;
 
-import java.io.*;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.*;
 import java.util.*;
 
 public final class DriverDescriptorLoader {
+    public List<DriverDescriptor> load() {
+        URLResource resource = URLResource.from(Thread.currentThread().getContextClassLoader().getResource("drivers"));
+        if (resource == null) return Collections.emptyList();
+        return load(resource.path);
+    }
+
     public List<DriverDescriptor> load(Path root) {
         try {
-            if (root == null) root = Paths.get(System.getProperty("user.dir"), "drivers");
+            if (root == null) return load();
             if (!Files.isDirectory(root)) return Collections.emptyList();
             List<DriverDescriptor> out = new ArrayList<DriverDescriptor>();
             Set<String> ids = new HashSet<String>();
             DirectoryStream<Path> files = Files.newDirectoryStream(root, "*.properties");
             try {
                 for (Path p : files) {
-                    Properties x = new Properties();
-                    InputStream in = Files.newInputStream(p);
-                    try {
-                        x.load(in);
-                    } finally {
-                        in.close();
-                    }
+                    Props x = new Props(p.toFile(), java.nio.charset.StandardCharsets.UTF_8);
                     String id = req(x, "id", p), dc = req(x, "driverClass", p);
                     DatabaseType type = DatabaseType.valueOf(req(x, "databaseType", p).toUpperCase(Locale.ENGLISH));
                     List<Path> cp = new ArrayList<Path>();
-                    for (String s : split(x.getProperty("classpath"))) {
+                    for (String s : split(x.getStr("classpath"))) {
                         Path q = root.resolve(s).normalize();
                         if (!q.startsWith(root.normalize()) || !Files.isRegularFile(q))
                             throw new SchemaLoomException("invalid driver classpath: " + s);
@@ -35,14 +39,13 @@ public final class DriverDescriptorLoader {
                     if (cp.isEmpty()) throw new SchemaLoomException("empty classpath: " + id);
                     if (!ids.add(id)) throw new SchemaLoomException("duplicate driver id: " + id);
                     Properties defaults = new Properties();
-                    String d = x.getProperty("defaultProperties", "");
-                    for (String pair : d.split(";")) {
-                        if (pair.trim().isEmpty()) continue;
+                    String d = x.getStr("defaultProperties", "");
+                    for (String pair : StrUtil.splitTrim(d, ';')) {
                         int i = pair.indexOf('=');
                         if (i <= 0) throw new SchemaLoomException("invalid defaultProperties: " + id);
-                        defaults.setProperty(pair.substring(0, i).trim(), pair.substring(i + 1).trim());
+                        defaults.setProperty(StrUtil.trim(pair.substring(0, i)), StrUtil.trim(pair.substring(i + 1)));
                     }
-                    out.add(new DriverDescriptor(id, type, dc, Integer.parseInt(x.getProperty("priority", "0")), x.getProperty("serverVersionRange", ""), cp, split(x.getProperty("urlPrefixes")), split(x.getProperty("driverPackages")), defaults));
+                    out.add(new DriverDescriptor(id, type, dc, x.getInt("priority", 0), x.getStr("serverVersionRange", ""), cp, split(x.getStr("urlPrefixes")), split(x.getStr("driverPackages")), defaults));
                 }
             } finally {
                 files.close();
@@ -53,15 +56,25 @@ public final class DriverDescriptorLoader {
         }
     }
 
-    private static String req(Properties p, String k, Path path) {
-        String v = p.getProperty(k);
-        if (v == null || v.trim().isEmpty()) throw new SchemaLoomException("missing " + k + " in " + path);
-        return v.trim();
+    private static String req(Props p, String k, Path path) {
+        String v = p.getStr(k);
+        if (StrUtil.isBlank(v)) throw new SchemaLoomException("missing " + k + " in " + path);
+        return StrUtil.trim(v);
     }
 
     private static List<String> split(String s) {
-        List<String> o = new ArrayList<String>();
-        if (s != null) for (String v : s.split(",")) if (!v.trim().isEmpty()) o.add(v.trim());
-        return o;
+        return StrUtil.isBlank(s) ? Collections.<String>emptyList() : StrUtil.splitTrim(s, ',');
+    }
+
+    private static final class URLResource {
+        private final Path path;
+        private URLResource(Path path) { this.path = path; }
+        private static URLResource from(java.net.URL url) {
+            if (url == null) return null;
+            if (!"file".equalsIgnoreCase(url.getProtocol()))
+                throw new SchemaLoomException("drivers resource must be an exploded filesystem directory: " + url);
+            try { return new URLResource(Paths.get(new URI(url.toString()))); }
+            catch (URISyntaxException e) { throw new SchemaLoomException("invalid drivers resource URL", e); }
+        }
     }
 }
