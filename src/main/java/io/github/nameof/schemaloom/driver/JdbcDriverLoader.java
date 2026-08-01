@@ -29,18 +29,41 @@ public final class JdbcDriverLoader implements AutoCloseable {
         return connect(null, url, driverId, properties);
     }
 
+    public synchronized ConnectionProvider connect(JdbcConnectionConfig config) {
+        if (config == null) throw new SchemaLoomException("connection config is required");
+        String driverId = config.getDriverId();
+        List<DriverDescriptor> candidates = new ArrayList<DriverDescriptor>();
+        for (DriverDescriptor d : descriptors)
+            if ((driverId == null || driverId.equals(d.getId())) && config.getDatabaseType() == d.getDatabaseType())
+                candidates.add(d);
+        sort(candidates);
+        if (driverId != null && candidates.isEmpty()) throw new SchemaLoomException("driver not found: " + driverId);
+        if (candidates.isEmpty())
+            throw new SchemaLoomException("no JDBC driver matches database type: " + config.getDatabaseType());
+        Throwable last = null;
+        for (DriverDescriptor d : candidates) {
+            String url = JdbcUrlBuilder.build(config.getDatabaseType(), d.getUrlTemplate(), config.getHost(), config.getPort(), config.getDatabase());
+            if (driverId == null && !d.getUrlPrefixes().isEmpty() && !matches(d, url)) continue;
+            try {
+                Properties p = config.getProperties();
+                if (config.getUsername() != null) p.setProperty("user", config.getUsername());
+                if (config.getPassword() != null) p.setProperty("password", config.getPassword());
+                return open(d, url, p);
+            } catch (Throwable e) {
+                last = e;
+                if (driverId != null) break;
+            }
+        }
+        throw new SchemaLoomException("no driver could connect to database: " + config.getDatabaseType(), last);
+    }
+
     public synchronized ConnectionProvider connect(DatabaseType type, String url, String driverId, Properties properties) {
         List<DriverDescriptor> candidates = new ArrayList<DriverDescriptor>();
         for (DriverDescriptor d : descriptors)
             if ((driverId == null || driverId.equals(d.getId())) && (type == null || type == d.getDatabaseType())
                     && (driverId != null || d.getUrlPrefixes().isEmpty() || matches(d, url)))
                 candidates.add(d);
-        Collections.sort(candidates, new Comparator<DriverDescriptor>() {
-            public int compare(DriverDescriptor a, DriverDescriptor b) {
-                int x = Integer.compare(b.getPriority(), a.getPriority());
-                return x != 0 ? x : a.getId().compareTo(b.getId());
-            }
-        });
+        sort(candidates);
         if (driverId != null && candidates.isEmpty()) throw new SchemaLoomException("driver not found: " + driverId);
         if (candidates.isEmpty()) throw new SchemaLoomException("no JDBC driver matches URL: " + url);
         Throwable last = null;
@@ -52,6 +75,15 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 if (driverId != null) break;
             }
         throw new SchemaLoomException("no driver could connect to " + url, last);
+    }
+
+    private static void sort(List<DriverDescriptor> candidates) {
+        Collections.sort(candidates, new Comparator<DriverDescriptor>() {
+            public int compare(DriverDescriptor a, DriverDescriptor b) {
+                int x = Integer.compare(b.getPriority(), a.getPriority());
+                return x != 0 ? x : a.getId().compareTo(b.getId());
+            }
+        });
     }
 
     private boolean matches(DriverDescriptor d, String url) {
@@ -80,7 +112,10 @@ public final class JdbcDriverLoader implements AutoCloseable {
             }
             if (e.refs == 0) {
                 cache.remove(d.getId());
-                try { e.loader.close(); } catch (Exception ignored) { }
+                try {
+                    e.loader.close();
+                } catch (Exception ignored) {
+                }
             }
             throw new SQLException("server version is outside driver range");
         }

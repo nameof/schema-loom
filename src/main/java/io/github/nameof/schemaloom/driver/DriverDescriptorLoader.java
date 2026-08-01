@@ -45,7 +45,7 @@ public final class DriverDescriptorLoader {
                         if (i <= 0) throw new SchemaLoomException("invalid defaultProperties: " + id);
                         defaults.setProperty(StrUtil.trim(pair.substring(0, i)), StrUtil.trim(pair.substring(i + 1)));
                     }
-                    out.add(new DriverDescriptor(id, type, dc, x.getInt("priority", 0), x.getStr("serverVersionRange", ""), cp, split(x.getStr("urlPrefixes")), split(x.getStr("driverPackages")), defaults));
+                    out.add(new DriverDescriptor(id, type, dc, x.getInt("priority", 0), x.getStr("serverVersionRange", ""), x.getStr("urlTemplate", ""), cp, split(x.getStr("urlPrefixes")), split(x.getStr("driverPackages")), defaults));
                 }
             } finally {
                 files.close();

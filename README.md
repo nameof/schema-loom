@@ -325,8 +325,9 @@ drivers/
 id=mysql8
 databaseType=MYSQL
 driverClass=com.mysql.cj.jdbc.Driver
-classpath=mysql-connector-j-8.x.x.jar
+classpath=mysql-connector-java-8.0.28.jar
 urlPrefixes=jdbc:mysql:
+urlTemplate=jdbc:mysql://${host}:${port}/${database}
 priority=20
 serverVersionRange=[5.7,9.0)
 driverPackages=com.mysql.cj,com.mysql
@@ -338,19 +339,15 @@ defaultProperties=useSSL=false;serverTimezone=UTC;connectTimeout=1000
 ```java
 JdbcDriverLoader loader = new JdbcDriverLoader();
 Properties connectionProperties = new Properties();
-connectionProperties.setProperty("user", System.getenv("MYSQL_USER"));
-connectionProperties.setProperty("password", System.getenv("MYSQL_PASSWORD"));
-
-ConnectionProvider sourceConnection = loader.connect(
-    DatabaseType.MYSQL,
-    "jdbc:mysql://localhost:3306/source_db",
-    "mysql8",
-    connectionProperties);
-ConnectionProvider targetConnection = loader.connect(
-    DatabaseType.MYSQL,
-    "jdbc:mysql://localhost:3306/target_db",
-    "mysql8",
-    connectionProperties);
+connectionProperties.setProperty("useSSL", "false");
+JdbcConnectionConfig sourceConfig = new JdbcConnectionConfig(DatabaseType.MYSQL,
+    "localhost", 3306, "source_db", System.getenv("MYSQL_USER"),
+    System.getenv("MYSQL_PASSWORD"), null, connectionProperties); // null: 按 priority 自动选择
+JdbcConnectionConfig targetConfig = new JdbcConnectionConfig(DatabaseType.MYSQL,
+    "localhost", 3306, "target_db", System.getenv("MYSQL_USER"),
+    System.getenv("MYSQL_PASSWORD"), "mysql8", connectionProperties); // 显式选择版本
+ConnectionProvider sourceConnection = loader.connect(sourceConfig);
+ConnectionProvider targetConnection = loader.connect(targetConfig);
 
 try {
     EtlResult result = EtlTask.builder()

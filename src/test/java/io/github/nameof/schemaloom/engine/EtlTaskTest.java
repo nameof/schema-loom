@@ -97,17 +97,17 @@ public class EtlTaskTest {
 
     @Test
     public void localTest() {
-        String driverId = "mysql8";
         JdbcDriverLoader loader = new JdbcDriverLoader();
 
-        Properties properties = new Properties();
-        properties.setProperty("user", "root");
-        properties.setProperty("password", "root");
+        JdbcConnectionConfig sourceConfig = new JdbcConnectionConfig(
+                DatabaseType.MYSQL, "localhost", 3306, "hxl", "root", "root");
+        JdbcConnectionConfig targetConfig = new JdbcConnectionConfig(
+                DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         try {
             EtlResult result = EtlTask.builder()
-                    .source(new JdbcTableSource(loader.connect(DatabaseType.MYSQL, "jdbc:mysql://localhost:3306/hxl", driverId, properties),
+                    .source(new JdbcTableSource(loader.connect(sourceConfig),
                             new QualifiedTableName(null, null, "jsh_account")))
-                    .target(new JdbcTableTarget(loader.connect(DatabaseType.MYSQL, "jdbc:mysql://localhost:3306/hxl2", driverId, properties),
+                    .target(new JdbcTableTarget(loader.connect(targetConfig),
                             "a", DatabaseType.MYSQL))
                     .targetMode(TargetMode.REPLACE)
                     .build().run();

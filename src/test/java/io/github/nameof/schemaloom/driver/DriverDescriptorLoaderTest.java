@@ -21,6 +21,14 @@ public class DriverDescriptorLoaderTest {
         assertEquals("false", descriptor.getDefaultProperties().getProperty("useSSL"));
     }
 
+    @Test public void supportsConnectionConfigDefaults() {
+        JdbcConnectionConfig config = new JdbcConnectionConfig(DatabaseType.MYSQL, "db.example", 0,
+                "app", "user", "secret", null, null);
+        assertEquals(3306, config.getPort());
+        assertEquals("jdbc:mysql://db.example:3306/app",
+                JdbcUrlBuilder.build(config.getDatabaseType(), "", config.getHost(), config.getPort(), config.getDatabase()));
+    }
+
     @Test(expected = RuntimeException.class) public void rejectsClasspathOutsideRoot() throws Exception {
         Path root = Files.createTempDirectory("schemaloom-drivers");
         Files.write(root.resolve("bad.properties"), Arrays.asList("id=x", "databaseType=MYSQL", "driverClass=x.Driver", "classpath=..\\outside.jar"), StandardCharsets.UTF_8);

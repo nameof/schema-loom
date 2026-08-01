@@ -4,19 +4,20 @@ import java.nio.file.Path;
 import java.util.*;
 
 public final class DriverDescriptor {
-    private final String id, driverClass, versionRange;
+    private final String id, driverClass, versionRange, urlTemplate;
     private final DatabaseType databaseType;
     private final int priority;
     private final List<Path> classpath;
     private final List<String> prefixes, packages;
     private final Properties defaults;
 
-    DriverDescriptor(String id, DatabaseType type, String driverClass, int priority, String range, List<Path> cp, List<String> prefixes, List<String> packages, Properties defaults) {
+    DriverDescriptor(String id, DatabaseType type, String driverClass, int priority, String range, String urlTemplate, List<Path> cp, List<String> prefixes, List<String> packages, Properties defaults) {
         this.id = id;
         this.databaseType = type;
         this.driverClass = driverClass;
         this.priority = priority;
         this.versionRange = range;
+        this.urlTemplate = urlTemplate;
         this.classpath = Collections.unmodifiableList(cp);
         this.prefixes = Collections.unmodifiableList(prefixes);
         this.packages = Collections.unmodifiableList(packages);
@@ -41,6 +42,10 @@ public final class DriverDescriptor {
 
     public String getVersionRange() {
         return versionRange;
+    }
+
+    public String getUrlTemplate() {
+        return urlTemplate;
     }
 
     public List<Path> getClasspath() {
