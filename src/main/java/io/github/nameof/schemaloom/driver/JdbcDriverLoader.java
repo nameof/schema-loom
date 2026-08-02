@@ -42,9 +42,9 @@ public final class JdbcDriverLoader implements AutoCloseable {
             throw new SchemaLoomException("no JDBC driver matches database type: " + config.getDatabaseType());
         Throwable last = null;
         for (DriverDescriptor d : candidates) {
-            String url = JdbcUrlBuilder.build(config.getDatabaseType(), d.getUrlTemplate(), config.getHost(), config.getPort(), config.getDatabase());
-            if (driverId == null && !d.getUrlPrefixes().isEmpty() && !matches(d, url)) continue;
             try {
+                String url = JdbcUrlBuilder.build(config.getDatabaseType(), d.getUrlTemplate(), config.getHost(), config.getPort(), config.getDatabase());
+                if (driverId == null && !d.getUrlPrefixes().isEmpty() && !matches(d, url)) continue;
                 Properties p = config.getProperties();
                 if (config.getUsername() != null) p.setProperty("user", config.getUsername());
                 if (config.getPassword() != null) p.setProperty("password", config.getPassword());

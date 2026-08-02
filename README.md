@@ -417,7 +417,9 @@ mvn test
 运行 MySQL 集成测试前，准备可写的测试数据库。测试用例约定的环境变量如下：
 
 ```powershell
-$env:SCHEMALOOM_IT_MYSQL_URL = "jdbc:mysql://localhost:3306/test"
+$env:SCHEMALOOM_IT_MYSQL_HOST = "localhost"
+$env:SCHEMALOOM_IT_MYSQL_PORT = "3306"
+$env:SCHEMALOOM_IT_MYSQL_DATABASE = "test"
 $env:SCHEMALOOM_IT_MYSQL_USER = "test"
 $env:SCHEMALOOM_IT_MYSQL_PASSWORD = "<password>"
 # 可选：让集成测试通过 JdbcDriverLoader 加载自定义驱动

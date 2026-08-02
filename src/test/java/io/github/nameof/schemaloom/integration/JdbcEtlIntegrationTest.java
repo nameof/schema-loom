@@ -12,23 +12,25 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import java.sql.*;
-import java.util.Properties;
-
 import static org.junit.Assert.*;
 
 /**
- * Runs against a real MySQL instance when SCHEMALOOM_IT_MYSQL_URL is configured.
+ * Runs against a real MySQL instance when SCHEMALOOM_IT_MYSQL_HOST is configured.
  */
 public class JdbcEtlIntegrationTest {
     @Test
     public void migratesSelectedTableAndVerifiesRows() throws Exception {
-        String url = System.getenv("SCHEMALOOM_IT_MYSQL_URL");
+        String host = System.getenv("SCHEMALOOM_IT_MYSQL_HOST");
+        String portValue = System.getenv("SCHEMALOOM_IT_MYSQL_PORT");
+        String database = System.getenv("SCHEMALOOM_IT_MYSQL_DATABASE");
         String user = System.getenv("SCHEMALOOM_IT_MYSQL_USER");
         String password = System.getenv("SCHEMALOOM_IT_MYSQL_PASSWORD");
         String driverId = System.getenv("SCHEMALOOM_IT_MYSQL_DRIVER_ID");
-        Assume.assumeTrue("set MySQL connection variables and SCHEMALOOM_IT_MYSQL_DRIVER_ID", url != null && user != null && password != null && driverId != null);
+        Assume.assumeTrue("set MySQL host, database, user and password variables", host != null && database != null && user != null && password != null);
+        int port = portValue == null || portValue.trim().isEmpty() ? 3306 : Integer.parseInt(portValue);
+        JdbcConnectionConfig config = new JdbcConnectionConfig(DatabaseType.MYSQL, host, port, database, user, password, driverId, null);
         JdbcDriverLoader loader = new JdbcDriverLoader();
-        ConnectionProvider setup = connection(loader, url, user, password, driverId);
+        ConnectionProvider setup = loader.connect(config);
         Connection c = setup.getConnection();
         Statement st = c.createStatement();
         st.execute("DROP TABLE IF EXISTS schemaloom_target");
@@ -44,14 +46,14 @@ public class JdbcEtlIntegrationTest {
         setup.close();
 
         EtlResult result = EtlTask.builder()
-                .source(new JdbcTableSource(connection(loader, url, user, password, driverId), new QualifiedTableName(null, null, "schemaloom_source"), 2))
-                .target(new JdbcTableTarget(connection(loader, url, user, password, driverId), "schemaloom_target", DatabaseType.MYSQL))
+                .source(new JdbcTableSource(loader.connect(config), new QualifiedTableName(null, null, "schemaloom_source"), 2))
+                .target(new JdbcTableTarget(loader.connect(config), "schemaloom_target", DatabaseType.MYSQL))
                 .targetMode(TargetMode.REPLACE).batchSize(2).build().run();
         assertEquals(EtlStatus.SUCCESS, result.getStatus());
         assertEquals(3, result.getRead());
         assertEquals(3, result.getWritten());
 
-        ConnectionProvider verify = connection(loader, url, user, password, driverId);
+        ConnectionProvider verify = loader.connect(config);
         ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT id, name, amount FROM schemaloom_target ORDER BY id");
         int count = 0;
         while (rs.next()) {
@@ -69,10 +71,4 @@ public class JdbcEtlIntegrationTest {
         loader.close();
     }
 
-    private static ConnectionProvider connection(JdbcDriverLoader loader, String url, String user, String password, String driverId) {
-        Properties properties = new Properties();
-        properties.setProperty("user", user);
-        properties.setProperty("password", password);
-        return loader.connect(DatabaseType.MYSQL, url, driverId, properties);
-    }
 }

@@ -29,6 +29,33 @@ public class DriverDescriptorLoaderTest {
                 JdbcUrlBuilder.build(config.getDatabaseType(), "", config.getHost(), config.getPort(), config.getDatabase()));
     }
 
+    @Test(expected = RuntimeException.class)
+    public void rejectsInvalidConnectionPort() {
+        new JdbcConnectionConfig(DatabaseType.MYSQL, "db.example", 70000,
+                "app", "user", "secret", null, null);
+    }
+
+    @Test public void copiesConnectionProperties() {
+        Properties input = new Properties();
+        input.setProperty("useSSL", "false");
+        JdbcConnectionConfig config = new JdbcConnectionConfig(DatabaseType.MYSQL, "db.example", 3306,
+                "app", "user", "secret", null, input);
+        input.setProperty("useSSL", "true");
+        assertEquals("false", config.getProperties().getProperty("useSSL"));
+    }
+
+    @Test public void expandsDescriptorUrlTemplate() {
+        assertEquals("jdbc:test://db.example:1234/app",
+                JdbcUrlBuilder.build(DatabaseType.MYSQL, "jdbc:test://${host}:${port}/${database}",
+                        "db.example", 1234, "app"));
+    }
+
+    @Test(expected = RuntimeException.class)
+    public void rejectsUnknownUrlTemplatePlaceholder() {
+        JdbcUrlBuilder.build(DatabaseType.MYSQL, "jdbc:test://${host}/${unknown}",
+                "db.example", 1234, "app");
+    }
+
     @Test(expected = RuntimeException.class) public void rejectsClasspathOutsideRoot() throws Exception {
         Path root = Files.createTempDirectory("schemaloom-drivers");
         Files.write(root.resolve("bad.properties"), Arrays.asList("id=x", "databaseType=MYSQL", "driverClass=x.Driver", "classpath=..\\outside.jar"), StandardCharsets.UTF_8);
