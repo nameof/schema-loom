@@ -29,16 +29,19 @@ public final class CsvSource implements Source {
         if (headerLine < 0) throw new IllegalArgumentException("headerLine");
     }
 
+    /** 返回显式 Schema；未提供时只扫描一次标题和最多 1000 行样本。 */
     public RecordSchema schema() {
         if (explicit != null) return explicit;
         if (inferred == null) inferred = infer();
         return inferred;
     }
 
+    /** 根据标题和样本值推断字段类型，空值不参与推断。 */
     private RecordSchema infer() {
         try {
             BufferedReader r = Files.newBufferedReader(path, charset);
             try {
+                // 先读取标题，再从后续数据行中收集推断样本。
                 List<String> h = readRow(r);
                 if (h == null || h.isEmpty()) throw new SchemaLoomException("CSV has no header");
                 List<List<String>> sample = new ArrayList<List<String>>();
@@ -54,18 +57,19 @@ public final class CsvSource implements Source {
                     String n = h.get(c);
                     if (n.trim().isEmpty() || !names.add(n))
                         throw new SchemaLoomException("empty or duplicate CSV header: " + n);
-                    LogicalType t = LogicalType.STRING;
+                    LogicalType t = null;
                     Integer len = null;
                     for (List<String> row : sample) {
                         if (c >= row.size() || row.get(c).isEmpty()) continue;
                         String v = row.get(c);
                         LogicalType next = guess(v);
-                        if (t == LogicalType.STRING && looksNumeric(v) && v.length() > 0 && v.charAt(0) == '0' && v.length() > 1)
+                        // 带前导零的数字通常是编码或编号，必须保留为字符串。
+                        if (looksNumeric(v) && v.length() > 1 && v.charAt(0) == '0')
                             next = LogicalType.STRING;
-                        t = merge(t, next);
-                        len = Math.max(len, v.length());
+                        t = t == null ? next : merge(t, next);
+                        len = len == null ? v.length() : Math.max(len, v.length());
                     }
-                    fs.add(new FieldSchema(n, t, true, len, null, null));
+                    fs.add(new FieldSchema(n, t == null ? LogicalType.STRING : t, true, len, null, null));
                 }
                 return new RecordSchema(fs);
             } finally {
@@ -76,6 +80,7 @@ public final class CsvSource implements Source {
         }
     }
 
+    /** 重新打开文件并按批次流式读取，避免把整个 CSV 加载到内存。 */
     public void read(BatchConsumer consumer) {
         RecordSchema s = schema();
         try {
@@ -92,6 +97,7 @@ public final class CsvSource implements Source {
                     for (int i = 0; i < s.getFields().size(); i++)
                         values.add(i < row.size() ? convert(row.get(i), s.getFields().get(i).getLogicalType()) : null);
                     batch.add(new DataRecord(s, values));
+                    // 达到批大小后立即交给任务引擎处理。
                     if (batch.size() == 1000) {
                         consumer.accept(new RecordBatch(s, batch));
                         batch = new ArrayList<DataRecord>();
@@ -111,6 +117,7 @@ public final class CsvSource implements Source {
         return line == null ? null : parse(line);
     }
 
+    /** 解析单行 CSV，支持 delimiter、双引号包裹和双引号转义。 */
     private List<String> parse(String line) {
         List<String> out = new ArrayList<String>();
         StringBuilder b = new StringBuilder();
@@ -153,6 +160,7 @@ public final class CsvSource implements Source {
         return LogicalType.STRING;
     }
 
+    /** 合并同一列的样本类型，不兼容时退化为 STRING。 */
     private static LogicalType merge(LogicalType a, LogicalType b) {
         if (a == b) return a;
         if (a == LogicalType.STRING || b == LogicalType.STRING) return LogicalType.STRING;

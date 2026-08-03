@@ -25,12 +25,15 @@ public final class CsvTarget implements Target {
         this.delimiter = delimiter;
     }
 
+    /** 创建 CSV 输出；REPLACE 先写入 .part，APPEND 先校验已有标题。 */
     public void prepare(RecordSchema schema, TargetMode mode) {
         this.schema = schema;
         try {
+            // REPLACE 不直接覆盖旧文件，避免任务失败时破坏原文件。
             Path out = mode == TargetMode.REPLACE ? path.resolveSibling(path.getFileName() + ".part") : path;
             partial = mode == TargetMode.REPLACE ? path.resolveSibling(path.getFileName() + ".partial") : null;
             if (mode == TargetMode.APPEND && Files.exists(out)) {
+                // 追加前必须确认列顺序和标题完全一致。
                 BufferedReader r = Files.newBufferedReader(out, charset);
                 try {
                     String h = r.readLine();
@@ -63,6 +66,7 @@ public final class CsvTarget implements Target {
         return s.indexOf(delimiter) >= 0 || s.indexOf('"') >= 0 ? "\"" + s.replace("\"", "\"\"") + "\"" : s;
     }
 
+    /** 序列化并刷新一个批次；序列化失败时保留 partial 文件供排查。 */
     public BatchWriteResult write(RecordBatch batch) {
         try {
             for (DataRecord r : batch.getRecords()) {
@@ -75,11 +79,13 @@ public final class CsvTarget implements Target {
             }
             writer.flush();
             return new BatchWriteResult(batch.size(), 0);
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
+            preservePartial();
             throw new SchemaLoomException("cannot write CSV", e);
         }
     }
 
+    /** 关闭写入器，并在 REPLACE 成功时将 .part 原子替换为目标文件。 */
     public void close() {
         if (writer == null) return;
         try {
@@ -92,7 +98,20 @@ public final class CsvTarget implements Target {
                 }
             }
         } catch (IOException e) {
+            preservePartial();
             throw new SchemaLoomException("cannot close CSV target", e);
+        }
+    }
+
+    /** 将未完成的 .part 改名为 .partial，避免失败文件被误认为成功产物。 */
+    private void preservePartial() {
+        if (partial == null) return;
+        try {
+            if (writer != null) writer.close();
+            Path part = path.resolveSibling(path.getFileName() + ".part");
+            if (Files.exists(part)) Files.move(part, partial, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException ignored) {
+            // 保留原始写入异常，无法移动时由调用方根据目标目录排查。
         }
     }
 }

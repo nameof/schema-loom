@@ -13,13 +13,21 @@ public final class XlsxTarget implements Target {
     private RecordSchema schema;
     private Path part;
     private int rows;
+    private final int maxRowsPerSheet;
 
     public XlsxTarget(Path path) {
-        if (!path.toString().toLowerCase(Locale.ENGLISH).endsWith(".xlsx"))
-            throw new IllegalArgumentException("only .xlsx is supported");
-        this.path = path;
+        this(path, 1048576);
     }
 
+    XlsxTarget(Path path, int maxRowsPerSheet) {
+        if (!path.toString().toLowerCase(Locale.ENGLISH).endsWith(".xlsx"))
+            throw new IllegalArgumentException("only .xlsx is supported");
+        if (maxRowsPerSheet < 2) throw new IllegalArgumentException("maxRowsPerSheet must include a header and data row");
+        this.path = path;
+        this.maxRowsPerSheet = maxRowsPerSheet;
+    }
+
+    /** 仅支持 REPLACE，并先创建 .part 工作簿避免覆盖已有文件。 */
     public void prepare(RecordSchema s, TargetMode mode) {
         if (mode != TargetMode.REPLACE) throw new IllegalArgumentException("XLSX supports REPLACE only");
         schema = s;
@@ -35,12 +43,14 @@ public final class XlsxTarget implements Target {
         return n;
     }
 
+    /** 流式写入一个批次，达到单 Sheet 行数上限后创建下一个 Sheet。 */
     public BatchWriteResult write(RecordBatch b) {
         try {
             for (DataRecord r : b.getRecords()) {
                 writer.writeRow(r.getValues());
                 rows++;
-                if (rows >= 1048576) {
+                // rows 包含标题行，因此切换 Sheet 时要重新写入标题。
+                if (rows >= maxRowsPerSheet) {
                     writer.setSheet("Sheet" + (writer.getWorkbook().getNumberOfSheets() + 1));
                     writer.writeHeadRow(names());
                     rows = 1;
@@ -52,6 +62,7 @@ public final class XlsxTarget implements Target {
         }
     }
 
+    /** 关闭工作簿并将 .part 替换为最终 XLSX 文件。 */
     public void close() {
         if (writer == null) return;
         try {

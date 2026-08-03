@@ -23,6 +23,7 @@ public final class XlsxSource implements Source {
         this.explicit = explicit;
     }
 
+    /** 返回显式 Schema；否则扫描指定 Sheet 的标题和最多 1000 行样本。 */
     public RecordSchema schema() {
         if (explicit != null) return explicit;
         if (inferred == null) {
@@ -38,6 +39,7 @@ public final class XlsxSource implements Source {
         return inferred;
     }
 
+    /** 使用 Hutool SAX 流式读取指定 Sheet，并按批次回调数据。 */
     public void read(final BatchConsumer c) {
         final RecordSchema s = schema();
         ExcelUtil.readBySax(path.toFile(), sheet, new Handler() {
@@ -46,12 +48,14 @@ public final class XlsxSource implements Source {
 
             public void handle(int sh, long row, List<Object> values) {
                 if (head) {
+                    // 第一行始终是标题，不作为数据记录输出。
                     head = false;
                     return;
                 }
                 List<Object> v = new ArrayList<Object>();
                 for (int i = 0; i < s.getFields().size(); i++) v.add(i < values.size() ? values.get(i) : null);
                 b.add(new DataRecord(s, v));
+                // 达到批大小后立即释放当前批次，控制内存占用。
                 if (b.size() == 1000) {
                     c.accept(new RecordBatch(s, b));
                     b = new ArrayList<DataRecord>();
@@ -75,6 +79,7 @@ public final class XlsxSource implements Source {
         }
     }
 
+    /** XLSX 单元格类型推断工具，数字统一使用 DECIMAL 表示。 */
     static final class Infer {
         static RecordSchema schema(List<List<Object>> rows) {
             List<Object> h = rows.get(0);
@@ -88,15 +93,27 @@ public final class XlsxSource implements Source {
                 for (int r = 1; r < rows.size(); r++)
                     if (i < rows.get(r).size() && rows.get(r).get(i) != null) {
                         Object v = rows.get(r).get(i);
-                        if (v instanceof Boolean) t = merge(t, LogicalType.BOOLEAN);
-                        else if (v instanceof Number) t = merge(t, LogicalType.DECIMAL);
-                        else if (v instanceof Date) t = merge(t, LogicalType.TIMESTAMP);
+                        t = merge(t, valueType(v));
                     }
                 fs.add(FieldSchema.of(n, t));
             }
             return new RecordSchema(fs);
         }
 
+        /** 将 Hutool 返回的单元格值映射为 SchemaLoom 逻辑类型。 */
+        private static LogicalType valueType(Object value) {
+            if (value instanceof Boolean) return LogicalType.BOOLEAN;
+            if (value instanceof Number) return LogicalType.DECIMAL;
+            if (value instanceof Date) return LogicalType.TIMESTAMP;
+            if (value instanceof String) {
+                String text = ((String) value).trim();
+                if (text.matches("[-+]?\\d+(\\.\\d+)?") && !(text.length() > 1 && text.charAt(0) == '0'))
+                    return LogicalType.DECIMAL;
+            }
+            return LogicalType.STRING;
+        }
+
+        /** 合并样本类型，不兼容时退化为 STRING。 */
         private static LogicalType merge(LogicalType a, LogicalType b) {
             return a == LogicalType.STRING ? b : a == b ? a : LogicalType.STRING;
         }
