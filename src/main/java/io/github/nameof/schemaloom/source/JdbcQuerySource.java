@@ -87,5 +87,6 @@ public final class JdbcQuerySource implements Source {
     }
 
     public void close() {
+        provider.close();
     }
 }
