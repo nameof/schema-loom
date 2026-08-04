@@ -42,10 +42,11 @@ public final class CsvSource implements Source {
             BufferedReader r = Files.newBufferedReader(path, charset);
             try {
                 // 先读取标题，再从后续数据行中收集推断样本。
+                List<List<String>> sample = new ArrayList<List<String>>();
+                // 推断字段和正式读取数据保持相同顺序：先跳过前置行，再读取标题。
+                for (int i = 0; i < headerLine; i++) readRow(r);
                 List<String> h = readRow(r);
                 if (h == null || h.isEmpty()) throw new SchemaLoomException("CSV has no header");
-                List<List<String>> sample = new ArrayList<List<String>>();
-                for (int i = 0; i < headerLine; i++) readRow(r);
                 for (int i = 0; i < 1000; i++) {
                     List<String> row = readRow(r);
                     if (row == null) break;

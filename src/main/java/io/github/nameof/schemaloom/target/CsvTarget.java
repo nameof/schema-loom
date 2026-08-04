@@ -88,8 +88,10 @@ public final class CsvTarget implements Target {
     /** 关闭写入器，并在 REPLACE 成功时将 .part 原子替换为目标文件。 */
     public void close() {
         if (writer == null) return;
+        Writer current = writer;
         try {
-            writer.close();
+            current.close();
+            writer = null;
             if (partial != null) {
                 try {
                     Files.move(path.resolveSibling(path.getFileName() + ".part"), path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -98,8 +100,11 @@ public final class CsvTarget implements Target {
                 }
             }
         } catch (IOException e) {
+            writer = null;
             preservePartial();
             throw new SchemaLoomException("cannot close CSV target", e);
+        } finally {
+            writer = null;
         }
     }
 
@@ -112,6 +117,8 @@ public final class CsvTarget implements Target {
             if (Files.exists(part)) Files.move(part, partial, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException ignored) {
             // 保留原始写入异常，无法移动时由调用方根据目标目录排查。
+        } finally {
+            writer = null;
         }
     }
 }

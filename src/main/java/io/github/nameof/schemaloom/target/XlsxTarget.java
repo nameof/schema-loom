@@ -65,10 +65,13 @@ public final class XlsxTarget implements Target {
     /** 关闭工作簿并将 .part 替换为最终 XLSX 文件。 */
     public void close() {
         if (writer == null) return;
+        BigExcelWriter current = writer;
         try {
-            writer.close();
+            current.close();
+            writer = null;
             Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
+            writer = null;
             throw new SchemaLoomException("cannot close XLSX", e);
         }
     }

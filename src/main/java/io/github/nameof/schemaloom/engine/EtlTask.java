@@ -14,7 +14,6 @@ public final class EtlTask implements Callable<EtlResult> {
     private final Target target;
     private final Transformer transformer;
     private final List<FieldMapping> mappings;
-    private int batchSize = 1000;
     private final ErrorPolicy errorPolicy;
     private final TargetMode targetMode;
 
