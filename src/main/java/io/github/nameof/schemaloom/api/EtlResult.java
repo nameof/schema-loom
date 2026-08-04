@@ -12,9 +12,8 @@ public final class EtlResult {
     private final long read, transformed, filtered, written, failed;
     private final Instant started, ended;
     private final List<EtlError> errors;
-    private final String residualPath;
 
-    public EtlResult(EtlStatus status, long read, long transformed, long filtered, long written, long failed, Instant started, Instant ended, List<EtlError> errors, String residualPath) {
+    public EtlResult(EtlStatus status, long read, long transformed, long filtered, long written, long failed, Instant started, Instant ended, List<EtlError> errors) {
         this.status = status;
         this.read = read;
         this.transformed = transformed;
@@ -24,7 +23,6 @@ public final class EtlResult {
         this.started = started;
         this.ended = ended;
         this.errors = Collections.unmodifiableList(new ArrayList<EtlError>(errors));
-        this.residualPath = residualPath;
     }
 
     public EtlStatus getStatus() {
@@ -67,7 +65,4 @@ public final class EtlResult {
         return errors;
     }
 
-    public String getResidualPath() {
-        return residualPath;
-    }
 }

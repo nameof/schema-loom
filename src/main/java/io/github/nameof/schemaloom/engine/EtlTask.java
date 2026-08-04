@@ -23,7 +23,6 @@ public final class EtlTask implements Callable<EtlResult> {
         long read = 0, transformed = 0, filtered = 0, written = 0, failed = 0;
         List<EtlError> errors = new ArrayList<>();
         EtlStatus status = EtlStatus.SUCCESS;
-        String residual = null;
         RecordSchema targetSchema;
         try {
             targetSchema = FieldMapping.mapSchema(source.schema(), mappings);
@@ -106,7 +105,7 @@ public final class EtlTask implements Callable<EtlResult> {
                 addError(errors, new EtlError(read, "close-source", e));
             }
         }
-        return new EtlResult(status, read, transformed, filtered, written, failed, start, Instant.now(), errors, residual);
+        return new EtlResult(status, read, transformed, filtered, written, failed, start, Instant.now(), errors);
     }
 
     private final long[] readCounter = {0}, transformedCounter = {0}, filteredCounter = {0}, writtenCounter = {0}, failedCounter = {0};
