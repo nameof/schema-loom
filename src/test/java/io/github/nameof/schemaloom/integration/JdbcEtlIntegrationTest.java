@@ -48,7 +48,7 @@ public class JdbcEtlIntegrationTest {
         EtlResult result = EtlTask.builder()
                 .source(new JdbcTableSource(loader.connect(config), new QualifiedTableName(null, null, "schemaloom_source"), 2))
                 .target(new JdbcTableTarget(loader.connect(config), "schemaloom_target", DatabaseType.MYSQL))
-                .targetMode(TargetMode.REPLACE).batchSize(2).build().run();
+                .targetMode(TargetMode.REPLACE).build().run();
         assertEquals(EtlStatus.SUCCESS, result.getStatus());
         assertEquals(3, result.getRead());
         assertEquals(3, result.getWritten());

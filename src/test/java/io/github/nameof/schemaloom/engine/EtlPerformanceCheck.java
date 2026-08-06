@@ -20,7 +20,6 @@ public class EtlPerformanceCheck {
         EtlResult result = EtlTask.builder()
                 .source(new GeneratedSource(schema, total, 1000))
                 .target(target)
-                .batchSize(1000)
                 .build()
                 .run();
         assertEquals(EtlStatus.SUCCESS, result.getStatus());

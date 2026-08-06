@@ -37,6 +37,66 @@ public class EtlTaskTest {
     }
 
     @Test
+    public void listenerReceivesProgressAndElapsedResult() {
+        RecordSchema s = schema();
+        MemoryTarget t = new MemoryTarget();
+        final List<String> events = new ArrayList<String>();
+        final List<EtlProgress> progress = new ArrayList<EtlProgress>();
+        final EtlResult[] completed = {null};
+        final Object context = new Object();
+        EtlResult result = EtlTask.builder()
+                .source(new MemorySource(s, rows(s), 2))
+                .target(t)
+                .context(context)
+                .listener(new EtlTaskListener() {
+                    public void onStarted(Object c, EtlProgress p) {
+                        events.add("started");
+                        progress.add(p);
+                        assertSame(context, c);
+                    }
+
+                    public void onProgress(Object c, EtlProgress p) {
+                        events.add("progress");
+                        progress.add(p);
+                        assertSame(context, c);
+                    }
+
+                    public void onCompleted(Object c, EtlResult r) {
+                        events.add("completed");
+                        completed[0] = r;
+                        assertSame(context, c);
+                    }
+                }).build().run();
+        assertEquals(Arrays.asList("started", "progress", "progress", "completed"), events);
+        assertEquals(3, progress.get(0).getTotal());
+        assertEquals(1, progress.get(1).getBatchIndex());
+        assertEquals(3, progress.get(2).getRead());
+        assertSame(result, completed[0]);
+        assertNotNull(result.getStarted());
+        assertNotNull(result.getEnded());
+        assertTrue(result.getElapsedMillis() >= 0);
+    }
+
+    @Test
+    public void listenerFailureDoesNotFailTask() {
+        RecordSchema s = schema();
+        MemoryTarget t = new MemoryTarget();
+        final List<ListenerCallback> failures = new ArrayList<ListenerCallback>();
+        EtlResult result = EtlTask.builder()
+                .source(new MemorySource(s, rows(s), 3))
+                .target(t)
+                .listener(new EtlTaskListener() {
+                    public void onProgress(Object context, EtlProgress p) {
+                        throw new IllegalStateException("observer failed");
+                    }
+                })
+                .listenerErrorHandler((callback, context, error) -> failures.add(callback))
+                .build().run();
+        assertEquals(EtlStatus.SUCCESS, result.getStatus());
+        assertEquals(Collections.singletonList(ListenerCallback.PROGRESS), failures);
+    }
+
+    @Test
     public void dropAndMapAreCounted() {
         RecordSchema s = schema();
         MemoryTarget t = new MemoryTarget();

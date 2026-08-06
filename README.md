@@ -454,3 +454,33 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 提交 Issue 或 Pull Request 前，请先确认改动范围、测试方式和兼容性影响。新增行为应补充对应测试，文档中的示例应与公开 API 保持一致。
 
 本项目以 [Apache License 2.0](LICENSE) 发布。
+
+
+## Task lifecycle and progress listener
+
+`EtlTask` can report lifecycle events without owning an executor. The listener runs on the ETL worker thread and receives one progress callback after each source batch has been completely processed.
+
+```java
+Object businessTaskId = 123L;
+EtlTask task = EtlTask.builder()
+    .source(source)
+    .target(target)
+    .context(businessTaskId)
+    .listener(new EtlTaskListener() {
+        public void onStarted(Object context, EtlProgress p) {
+            // p.getTotal() is -1 when the source cannot provide an exact count.
+        }
+
+        public void onProgress(Object context, EtlProgress p) {
+            // Persist p.getRead(), p.getTotal() and context as needed.
+        }
+
+        public void onCompleted(Object context, EtlResult result) {
+            // result.getStarted(), getEnded() and getElapsedMillis() are available here.
+        }
+    })
+    .listenerErrorHandler((callback, context, error) -> reportListenerError(callback, error))
+    .build();
+```
+
+`Source.count()` is optional and returns `-1` by default. `MemorySource` and `JdbcTableSource` provide exact counts; CSV, XLSX and arbitrary JDBC queries leave the total unknown. Count failures fail the task before `onStarted`, while listener failures are isolated from ETL execution.

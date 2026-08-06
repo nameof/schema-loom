@@ -20,6 +20,10 @@ public final class MemorySource implements Source {
         return schema;
     }
 
+    public long count() {
+        return records.size();
+    }
+
     public void read(BatchConsumer consumer) {
         for (int i = 0; i < records.size(); i += batchSize) {
             if (Thread.currentThread().isInterrupted()) throw new SchemaLoomException("interrupted");
