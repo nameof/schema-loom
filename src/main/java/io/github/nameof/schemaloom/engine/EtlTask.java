@@ -2,13 +2,11 @@ package io.github.nameof.schemaloom.engine;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.transform.FieldMapping;
-import lombok.Builder;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Callable;
 
-@Builder
 public final class EtlTask implements Callable<EtlResult> {
     private final Source source;
     private final Target target;
@@ -19,6 +17,20 @@ public final class EtlTask implements Callable<EtlResult> {
     private final Object context;
     private final EtlTaskListener listener;
     private final ListenerErrorHandler listenerErrorHandler;
+
+    private final long[] readCounter = {0}, transformedCounter = {0}, filteredCounter = {0}, writtenCounter = {0}, failedCounter = {0}, batchCounter = {0};
+
+    private EtlTask(Builder builder) {
+        source = builder.source;
+        target = builder.target;
+        transformer = builder.transformer;
+        mappings = builder.mappings;
+        errorPolicy = builder.errorPolicy;
+        targetMode = builder.targetMode;
+        context = builder.context;
+        listener = builder.listener;
+        listenerErrorHandler = builder.listenerErrorHandler;
+    }
 
     public EtlResult run() {
         readCounter[0] = transformedCounter[0] = filteredCounter[0] = writtenCounter[0] = failedCounter[0] = batchCounter[0] = 0;
@@ -126,8 +138,6 @@ public final class EtlTask implements Callable<EtlResult> {
         return result;
     }
 
-    private final long[] readCounter = {0}, transformedCounter = {0}, filteredCounter = {0}, writtenCounter = {0}, failedCounter = {0}, batchCounter = {0};
-
     private void notifyStarted(EtlProgress progress) {
         if (listener == null) return;
         try {
@@ -169,5 +179,40 @@ public final class EtlTask implements Callable<EtlResult> {
 
     public EtlResult call() {
         return run();
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    public static final class Builder {
+        private Source source;
+        private Target target;
+        private Transformer transformer;
+        private List<FieldMapping> mappings = Collections.emptyList();
+        private ErrorPolicy errorPolicy = ErrorPolicy.ISOLATE_AND_CONTINUE;
+        private TargetMode targetMode = TargetMode.APPEND;
+        private Object context;
+        private EtlTaskListener listener;
+        private ListenerErrorHandler listenerErrorHandler;
+
+        public Builder source(Source source) { this.source = source; return this; }
+        public Builder target(Target target) { this.target = target; return this; }
+        public Builder transformer(Transformer transformer) { this.transformer = transformer; return this; }
+        public Builder mappings(List<FieldMapping> mappings) { this.mappings = mappings; return this; }
+        public Builder errorPolicy(ErrorPolicy errorPolicy) { this.errorPolicy = errorPolicy; return this; }
+        public Builder targetMode(TargetMode targetMode) { this.targetMode = targetMode; return this; }
+        public Builder context(Object context) { this.context = context; return this; }
+        public Builder listener(EtlTaskListener listener) { this.listener = listener; return this; }
+        public Builder listenerErrorHandler(ListenerErrorHandler handler) { this.listenerErrorHandler = handler; return this; }
+
+        public EtlTask build() {
+            if (source == null) throw new IllegalArgumentException("source is required");
+            if (target == null) throw new IllegalArgumentException("target is required");
+            if (errorPolicy == null) throw new IllegalArgumentException("errorPolicy must not be null");
+            if (targetMode == null) throw new IllegalArgumentException("targetMode must not be null");
+            if (mappings == null) throw new IllegalArgumentException("mappings must not be null");
+            return new EtlTask(this);
+        }
     }
 }

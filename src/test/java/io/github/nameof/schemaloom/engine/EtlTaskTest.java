@@ -26,6 +26,26 @@ public class EtlTaskTest {
         return Arrays.asList(new DataRecord(s, Arrays.<Object>asList(1, "a")), new DataRecord(s, Arrays.<Object>asList(2, "b")), new DataRecord(s, Arrays.<Object>asList(3, "c")));
     }
 
+    @Test(expected = IllegalArgumentException.class)
+    public void builderRequiresSource() {
+        EtlTask.builder().target(new MemoryTarget()).build();
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void builderRequiresTarget() {
+        RecordSchema s = schema();
+        EtlTask.builder().source(new MemorySource(s, rows(s), 2)).build();
+    }
+
+    @Test
+    public void builderUsesAppendAsDefaultTargetMode() {
+        RecordSchema s = schema();
+        MemoryTarget target = new MemoryTarget();
+        EtlTask.builder().source(new MemorySource(s, rows(s), 2)).target(target).build().run();
+        EtlTask.builder().source(new MemorySource(s, rows(s), 2)).target(target).build().run();
+        assertEquals(6, target.getRecords().size());
+    }
+
     @Test
     public void identityCopiesBatches() {
         RecordSchema s = schema();
