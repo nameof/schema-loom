@@ -17,6 +17,7 @@ public final class JdbcTableSource implements Source {
         this(p, t, 1000);
     }
 
+    /** 读取表元数据并构造带正确标识符引用的 SELECT 查询委托。 */
     public JdbcTableSource(ConnectionProvider p, QualifiedTableName t, int fetchSize) {
         provider = p;
         try {
@@ -24,6 +25,7 @@ public final class JdbcTableSource implements Source {
             tableSchema = tableInfo.getSchema();
             String qmark = p.getConnection().getMetaData().getIdentifierQuoteString();
             String q = (qmark == null || qmark.trim().isEmpty()) ? "" : qmark.trim();
+            // 按 catalog.schema.table 顺序拼接，并统一交给 part 校验和转义各段标识符。
             StringBuilder sql = new StringBuilder("SELECT * FROM ");
             if (t.getCatalog() != null) sql.append(part(q, t.getCatalog())).append('.');
             if (t.getSchema() != null) sql.append(part(q, t.getSchema())).append('.');
@@ -35,6 +37,7 @@ public final class JdbcTableSource implements Source {
         }
     }
 
+    /** 校验标识符字符集，并在数据库要求引用时转义引用符。 */
     private static String part(String q, String s) {
         if (!s.matches("[A-Za-z0-9_$#]+")) throw new IllegalArgumentException("unsafe identifier: " + s);
         return q.isEmpty() ? s : q + s.replace(q, q + q) + q;
@@ -63,9 +66,11 @@ public final class JdbcTableSource implements Source {
         }
     }
 
+    /** 读取委托批次，并将记录绑定到表 Schema 后再交给调用方。 */
     public void read(BatchConsumer c) {
         delegate.read(batch -> {
             List<DataRecord> records = new ArrayList<DataRecord>(batch.size());
+            // 委托返回的记录可能携带不同的 Schema，这里统一替换为表的正式 Schema。
             for (DataRecord record : batch.getRecords()) {
                 records.add(new DataRecord(tableSchema, record.getValues()));
             }
