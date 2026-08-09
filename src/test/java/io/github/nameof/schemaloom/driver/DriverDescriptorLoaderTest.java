@@ -22,7 +22,7 @@ public class DriverDescriptorLoaderTest {
     }
 
     @Test public void supportsConnectionConfigDefaults() {
-        JdbcConnectionConfig config = new JdbcConnectionConfig(DatabaseType.MYSQL, "db.example", 0,
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, "db.example", 0,
                 "app", "user", "secret", null, null);
         assertEquals(3306, config.getPort());
         assertEquals("jdbc:mysql://db.example:3306/app",
@@ -31,14 +31,14 @@ public class DriverDescriptorLoaderTest {
 
     @Test(expected = RuntimeException.class)
     public void rejectsInvalidConnectionPort() {
-        new JdbcConnectionConfig(DatabaseType.MYSQL, "db.example", 70000,
+        new DatabaseConnectionInfo(DatabaseType.MYSQL, "db.example", 70000,
                 "app", "user", "secret", null, null);
     }
 
     @Test public void copiesConnectionProperties() {
         Properties input = new Properties();
         input.setProperty("useSSL", "false");
-        JdbcConnectionConfig config = new JdbcConnectionConfig(DatabaseType.MYSQL, "db.example", 3306,
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, "db.example", 3306,
                 "app", "user", "secret", null, input);
         input.setProperty("useSSL", "true");
         assertEquals("false", config.getProperties().getProperty("useSSL"));

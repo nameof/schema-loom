@@ -177,23 +177,15 @@ public class EtlTaskTest {
 
     @Test
     public void localTest() {
-        JdbcDriverLoader loader = new JdbcDriverLoader();
-
-        JdbcConnectionConfig sourceConfig = new JdbcConnectionConfig(
+        DatabaseConnectionInfo sourceConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl", "root", "root");
-        JdbcConnectionConfig targetConfig = new JdbcConnectionConfig(
+        DatabaseConnectionInfo targetConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
-        try {
-            EtlResult result = EtlTask.builder()
-                    .source(new JdbcTableSource(loader.connect(sourceConfig),
-                            new QualifiedTableName(null, null, "jsh_account")))
-                    .target(new JdbcTableTarget(loader.connect(targetConfig),
-                            "a", DatabaseType.MYSQL))
-                    .targetMode(TargetMode.REPLACE)
-                    .build().run();
-            assertSame(result.getStatus(), EtlStatus.SUCCESS);
-        } finally {
-            loader.close();
-        }
+        EtlResult result = EtlTask.builder()
+                .source(new JdbcTableSource(sourceConfig, "jsh_account"))
+                .target(new JdbcTableTarget(targetConfig, "a"))
+                .targetMode(TargetMode.REPLACE)
+                .build().run();
+        assertSame(result.getStatus(), EtlStatus.SUCCESS);
     }
 }

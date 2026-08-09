@@ -2,6 +2,7 @@ package io.github.nameof.schemaloom.target;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.*;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import org.junit.Test;
 
 import java.lang.reflect.*;
@@ -104,7 +105,7 @@ public class JdbcTableTargetContractTest {
             return new JdbcTableTarget(new ConnectionProvider() {
                 public Connection getConnection() { return connection; }
                 public void close() { }
-            }, "orders", DatabaseType.MYSQL);
+            }, new QualifiedTableName(null, null, "orders"), DatabaseType.MYSQL);
         }
     }
 

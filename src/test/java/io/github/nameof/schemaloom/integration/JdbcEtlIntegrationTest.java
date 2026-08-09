@@ -28,7 +28,7 @@ public class JdbcEtlIntegrationTest {
         String driverId = System.getenv("SCHEMALOOM_IT_MYSQL_DRIVER_ID");
         Assume.assumeTrue("set MySQL host, database, user and password variables", host != null && database != null && user != null && password != null);
         int port = portValue == null || portValue.trim().isEmpty() ? 3306 : Integer.parseInt(portValue);
-        JdbcConnectionConfig config = new JdbcConnectionConfig(DatabaseType.MYSQL, host, port, database, user, password, driverId, null);
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, host, port, database, user, password, driverId, null);
         JdbcDriverLoader loader = new JdbcDriverLoader();
         ConnectionProvider setup = loader.connect(config);
         Connection c = setup.getConnection();
@@ -46,8 +46,8 @@ public class JdbcEtlIntegrationTest {
         setup.close();
 
         EtlResult result = EtlTask.builder()
-                .source(new JdbcTableSource(loader.connect(config), new QualifiedTableName(null, null, "schemaloom_source"), 2))
-                .target(new JdbcTableTarget(loader.connect(config), "schemaloom_target", DatabaseType.MYSQL))
+                .source(new JdbcTableSource(config, "schemaloom_source", loader, 2))
+                .target(new JdbcTableTarget(config, "schemaloom_target", loader))
                 .targetMode(TargetMode.REPLACE).build().run();
         assertEquals(EtlStatus.SUCCESS, result.getStatus());
         assertEquals(3, result.getRead());

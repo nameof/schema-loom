@@ -26,14 +26,14 @@ public class JdbcDriverLoaderTest {
         writeDriver(root, "fixture8", "8.0.36", 10, "[8.0,9.0)");
         JdbcDriverLoader loader = new JdbcDriverLoader(root);
         try {
-            JdbcConnectionConfig automatic = new JdbcConnectionConfig(DatabaseType.MYSQL, "host", 0,
+            DatabaseConnectionInfo automatic = new DatabaseConnectionInfo(DatabaseType.MYSQL, "host", 0,
                     "db", "user", "password", null, null);
             ConnectionProvider selected = loader.connect(automatic);
             assertEquals("8.0.36", selected.getConnection().getMetaData().getDatabaseProductVersion());
             selected.close();
             assertEquals(0, cacheSize(loader));
 
-            JdbcConnectionConfig explicit = new JdbcConnectionConfig(DatabaseType.MYSQL, "host", 0,
+            DatabaseConnectionInfo explicit = new DatabaseConnectionInfo(DatabaseType.MYSQL, "host", 0,
                     "db", "user", "password", "fixture5", null);
             ConnectionProvider selectedFive = loader.connect(explicit);
             assertEquals("5.7.44", selectedFive.getConnection().getMetaData().getDatabaseProductVersion());

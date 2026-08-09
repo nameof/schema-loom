@@ -1,7 +1,7 @@
 package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.*;
-import io.github.nameof.schemaloom.driver.ConnectionProvider;
+import io.github.nameof.schemaloom.driver.*;
 
 import java.sql.*;
 import java.time.*;
@@ -13,6 +13,14 @@ public final class JdbcQuerySource implements Source {
     private final List<Object> params;
     private final int fetchSize;
     private RecordSchema schema;
+
+    public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize) {
+        this(JdbcConnectionFactory.open(info), sql, params, fetchSize);
+    }
+
+    public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize, JdbcDriverLoader loader) {
+        this(JdbcConnectionFactory.open(info, loader), sql, params, fetchSize);
+    }
 
     public JdbcQuerySource(ConnectionProvider p, String sql, List<Object> params, int fetchSize) {
         if (sql == null || !sql.trim().toLowerCase(Locale.ENGLISH).startsWith("select"))

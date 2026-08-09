@@ -146,23 +146,26 @@ assert target.getRecords().size() == 2;
 
 `JdbcConnectionProvider` 使用运行环境中的 JDBC 驱动和 `DriverManager`。生产环境不要把密码硬编码在源码中。
 
+普通应用可以使用 `DatabaseConnectionInfo` 描述连接和默认 catalog/schema，Source/Target 只需要表名：
+
 ```java
-ConnectionProvider sourceConnection =
-    new JdbcConnectionProvider(sourceUrl, sourceUser, sourcePassword);
-ConnectionProvider targetConnection =
-    new JdbcConnectionProvider(targetUrl, targetUser, targetPassword);
+DatabaseConnectionInfo database = new DatabaseConnectionInfo(
+    DatabaseType.MYSQL, host, port, databaseName,
+    catalog, schema, username, password, null, null);
+Source source = new JdbcTableSource(database, "source_table");
+Target target = new JdbcTableTarget(database, "target_table");
+```
+
+需要连接池、测试替身或自定义连接生命周期时，仍可使用 `ConnectionProvider` 和 `QualifiedTableName` 构造器。
+
+```java
+DatabaseConnectionInfo sourceDatabase = ...;
+DatabaseConnectionInfo targetDatabase = ...;
 
 EtlResult result = EtlTask.builder()
-    .source(new JdbcTableSource(
-        sourceConnection,
-        new QualifiedTableName(null, null, "source_table"),
-        1000))
-    .target(new JdbcTableTarget(
-        targetConnection,
-        "target_table",
-        DatabaseType.MYSQL))
+    .source(new JdbcTableSource(sourceDatabase, "source_table", 1000))
+    .target(new JdbcTableTarget(targetDatabase, "target_table"))
     .targetMode(TargetMode.REPLACE)
-    .batchSize(1000)
     .errorPolicy(ErrorPolicy.FAIL_FAST)
     .build()
     .run();
@@ -176,7 +179,7 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 
 ```java
 Source source = new JdbcQuerySource(
-    sourceConnection,
+    sourceDatabase,
     "SELECT id, name FROM source_table WHERE id >= ?",
     Collections.<Object>singletonList(100),
     1000);
@@ -189,15 +192,14 @@ CSV 默认使用 UTF-8、逗号分隔和标题行。未提供 Schema 时会从�
 ```java
 Source source = new CsvSource(Paths.get("input.csv"));
 Target target = new JdbcTableTarget(
-    new JdbcConnectionProvider(dbUrl, dbUser, dbPassword),
-    "orders",
-    DatabaseType.MYSQL);
+    new DatabaseConnectionInfo(DatabaseType.MYSQL, dbHost, dbPort, dbName,
+        null, null, dbUser, dbPassword, null, null),
+    "orders");
 
 EtlResult result = EtlTask.builder()
     .source(source)
     .target(target)
     .targetMode(TargetMode.APPEND)
-    .batchSize(1000)
     .build()
     .run();
 ```
@@ -340,10 +342,10 @@ defaultProperties=useSSL=false;serverTimezone=UTC;connectTimeout=1000
 JdbcDriverLoader loader = new JdbcDriverLoader();
 Properties connectionProperties = new Properties();
 connectionProperties.setProperty("useSSL", "false");
-JdbcConnectionConfig sourceConfig = new JdbcConnectionConfig(DatabaseType.MYSQL,
+DatabaseConnectionInfo sourceConfig = new DatabaseConnectionInfo(DatabaseType.MYSQL,
     "localhost", 3306, "source_db", System.getenv("MYSQL_USER"),
     System.getenv("MYSQL_PASSWORD"), null, connectionProperties); // null: 按 priority 自动选择
-JdbcConnectionConfig targetConfig = new JdbcConnectionConfig(DatabaseType.MYSQL,
+DatabaseConnectionInfo targetConfig = new DatabaseConnectionInfo(DatabaseType.MYSQL,
     "localhost", 3306, "target_db", System.getenv("MYSQL_USER"),
     System.getenv("MYSQL_PASSWORD"), "mysql8", connectionProperties); // 显式选择版本
 ConnectionProvider sourceConnection = loader.connect(sourceConfig);
@@ -351,12 +353,9 @@ ConnectionProvider targetConnection = loader.connect(targetConfig);
 
 try {
     EtlResult result = EtlTask.builder()
-        .source(new JdbcTableSource(sourceConnection,
-            new QualifiedTableName(null, null, "source_table"), 1000))
-        .target(new JdbcTableTarget(targetConnection,
-            "target_table", DatabaseType.MYSQL))
+        .source(new JdbcTableSource(sourceConfig, "source_table", loader, 1000))
+        .target(new JdbcTableTarget(targetConfig, "target_table", loader))
         .targetMode(TargetMode.REPLACE)
-        .batchSize(1000)
         .errorPolicy(ErrorPolicy.FAIL_FAST)
         .build()
         .run();
@@ -455,32 +454,37 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 本项目以 [Apache License 2.0](LICENSE) 发布。
 
+## 关于catalog/schema
+不同数据库对“库、模式、表”的定义不同：
 
-## Task lifecycle and progress listener
+| 数据库 | catalog | schema | 示例 |
+|---|---|---|---|
+| MySQL | 数据库名 | 通常为空 | `shop.orders` |
+| Oracle | 通常为空 | 用户/模式 | `APP.ORDERS` |
+| SQL Server | 数据库名 | 如 `dbo` | `shop.dbo.orders` |
 
-`EtlTask` can report lifecycle events without owning an executor. The listener runs on the ETL worker thread and receives one progress callback after each source batch has been completely processed.
 
-```java
-Object businessTaskId = 123L;
-EtlTask task = EtlTask.builder()
-    .source(source)
-    .target(target)
-    .context(businessTaskId)
-    .listener(new EtlTaskListener() {
-        public void onStarted(Object context, EtlProgress p) {
-            // p.getTotal() is -1 when the source cannot provide an exact count.
-        }
+## 核心功能&BUG TODO
+- 当前LogicalType对应的实际数据未规范化，例如同样的时间LogicalType在mysql可能返回LocalDate、oracle可能返回厂商专用对象、XLSX可能返回long。 尤其是异库脱敏可能直接报错
+- 目前的驱动加载仅适合开发测试：实际打包运行的路径为application.jar!/drivers/mysql8.properties，URLClassLoader无法加载，生产环境需要调整代码为外部路径加载。  （但我就想用这种方式管理驱动，那就重写类加载器？SPI? ）
+- 使用SchemaCrawler操作数据库，并封装实体类，不对外暴露SchemaCrawler API
+- 索引、字段默认值、自增、注释复制
+- 明确区分 TABLE 和 VIEW，视图是只读对象，不能按普通表处理；可支持复制视图
+- 允许视图作为 Source，视图不参与目标建表逻辑
+- 外键迁移
+- BLOB等二进制字段：直接跳过；或流式读写，用户可选择忽略（默认）这种字段
+- TEXT/LONGTEXT ：用户可选择忽略
+- CSV 配置：自定义quote、escape
+- 日志输出
+- XLSX指定sheet
+- 代码审计：所有逻辑均正确关闭已打开资源
 
-        public void onProgress(Object context, EtlProgress p) {
-            // Persist p.getRead(), p.getTotal() and context as needed.
-        }
+## 优化TODO
+- loader、provider、connection、source、target 、task，一环套一环，需简化资源释放和引用关系
+- 资源配额：连接、内存、线程、文件限制
 
-        public void onCompleted(Object context, EtlResult result) {
-            // result.getStarted(), getEnded() and getElapsedMillis() are available here.
-        }
-    })
-    .listenerErrorHandler((callback, context, error) -> reportListenerError(callback, error))
-    .build();
-```
-
-`Source.count()` is optional and returns `-1` by default. `MemorySource` and `JdbcTableSource` provide exact counts; CSV, XLSX and arbitrary JDBC queries leave the total unknown. Count failures fail the task before `onStarted`, while listener failures are isolated from ETL execution.
+## 低优先级TODO
+- 冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）
+- 临时表/分区表/存储过程/函数/触发器/sequence，明确短期不支持
+- 其他数据源支持：PGSQL、MONGO、JSON
+- JDBC Source：指定部分字段、参数化WHERE过滤条件配置（包含增量脱敏功能）

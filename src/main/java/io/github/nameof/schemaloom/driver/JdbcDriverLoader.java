@@ -34,7 +34,7 @@ public final class JdbcDriverLoader implements AutoCloseable {
     }
 
     /** 通过完整连接配置按数据库类型、优先级和服务端版本自动选择驱动。 */
-    public synchronized ConnectionProvider connect(JdbcConnectionConfig config) {
+    public synchronized ConnectionProvider connect(DatabaseConnectionInfo config) {
         if (config == null) throw new SchemaLoomException("connection config is required");
         String driverId = config.getDriverId();
         List<DriverDescriptor> candidates = new ArrayList<DriverDescriptor>();

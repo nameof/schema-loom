@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.dialect;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 
 import java.util.*;
 
@@ -11,6 +12,14 @@ abstract class AbstractDialect implements DatabaseDialect {
         if (s == null || s.trim().isEmpty()) throw new IllegalArgumentException("identifier is blank");
         String q = quoteChar();
         return q + s.replace(q, q + q) + q;
+    }
+
+    public String quote(QualifiedTableName table) {
+        if (table == null) throw new IllegalArgumentException("table is required");
+        StringBuilder sql = new StringBuilder();
+        if (table.getCatalog() != null) sql.append(quote(table.getCatalog())).append('.');
+        if (table.getSchema() != null) sql.append(quote(table.getSchema())).append('.');
+        return sql.append(quote(table.getTable())).toString();
     }
 
     public String createTable(String table, RecordSchema s) {

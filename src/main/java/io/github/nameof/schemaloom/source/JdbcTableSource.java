@@ -1,7 +1,8 @@
 package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.*;
-import io.github.nameof.schemaloom.driver.ConnectionProvider;
+import io.github.nameof.schemaloom.driver.*;
+import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.metadata.*;
 
 import java.sql.*;
@@ -11,36 +12,34 @@ public final class JdbcTableSource implements Source {
     private final JdbcQuerySource delegate;
     private final RecordSchema tableSchema;
     private final ConnectionProvider provider;
-    private final String qualifiedTable;
+    private final QualifiedTableName table;
+    private final DatabaseDialect dialect;
 
-    public JdbcTableSource(ConnectionProvider p, QualifiedTableName t) {
-        this(p, t, 1000);
+    public JdbcTableSource(DatabaseConnectionInfo info, String table) {
+        this(info, table, 1000);
+    }
+
+    public JdbcTableSource(DatabaseConnectionInfo info, String table, int fetchSize) {
+        this(JdbcConnectionFactory.open(info), info.table(table), fetchSize, new DialectRegistry().get(info.getDatabaseType()));
+    }
+
+    public JdbcTableSource(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
+        this(info, table, loader, 1000);
+    }
+
+    public JdbcTableSource(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader, int fetchSize) {
+        this(JdbcConnectionFactory.open(info, loader), info.table(table), fetchSize, new DialectRegistry().get(info.getDatabaseType()));
     }
 
     /** 读取表元数据并构造带正确标识符引用的 SELECT 查询委托。 */
-    public JdbcTableSource(ConnectionProvider p, QualifiedTableName t, int fetchSize) {
+    private JdbcTableSource(ConnectionProvider p, QualifiedTableName t, int fetchSize, DatabaseDialect dialect) {
         provider = p;
-        try {
-            TableInfo tableInfo = new DatabaseMetadataService().getTable(p, t);
-            tableSchema = tableInfo.getSchema();
-            String qmark = p.getConnection().getMetaData().getIdentifierQuoteString();
-            String q = (qmark == null || qmark.trim().isEmpty()) ? "" : qmark.trim();
-            // 按 catalog.schema.table 顺序拼接，并统一交给 part 校验和转义各段标识符。
-            StringBuilder sql = new StringBuilder("SELECT * FROM ");
-            if (t.getCatalog() != null) sql.append(part(q, t.getCatalog())).append('.');
-            if (t.getSchema() != null) sql.append(part(q, t.getSchema())).append('.');
-            sql.append(part(q, t.getTable()));
-            qualifiedTable = sql.substring("SELECT * FROM ".length());
-            delegate = new JdbcQuerySource(p, sql.toString(), Collections.<Object>emptyList(), fetchSize);
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot inspect JDBC identifier quoting", e);
-        }
-    }
-
-    /** 校验标识符字符集，并在数据库要求引用时转义引用符。 */
-    private static String part(String q, String s) {
-        if (!s.matches("[A-Za-z0-9_$#]+")) throw new IllegalArgumentException("unsafe identifier: " + s);
-        return q.isEmpty() ? s : q + s.replace(q, q + q) + q;
+        table = t;
+        this.dialect = dialect;
+        TableInfo tableInfo = new DatabaseMetadataService().getTable(p, t);
+        tableSchema = tableInfo.getSchema();
+        String sql = "SELECT * FROM " + dialect.quote(t);
+        delegate = new JdbcQuerySource(p, sql, Collections.<Object>emptyList(), fetchSize);
     }
 
     public RecordSchema schema() {
@@ -49,7 +48,7 @@ public final class JdbcTableSource implements Source {
 
     public long count() {
         try {
-            PreparedStatement statement = provider.getConnection().prepareStatement("SELECT COUNT(*) FROM " + qualifiedTable);
+            PreparedStatement statement = provider.getConnection().prepareStatement("SELECT COUNT(*) FROM " + dialect.quote(table));
             try {
                 ResultSet result = statement.executeQuery();
                 try {

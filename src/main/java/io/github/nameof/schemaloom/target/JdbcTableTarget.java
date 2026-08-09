@@ -4,21 +4,30 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.source.JdbcTypes;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 
 import java.sql.*;
 import java.util.*;
 
 public final class JdbcTableTarget implements Target {
     private final ConnectionProvider provider;
-    private final String table;
+    private final QualifiedTableName table;
     private final DatabaseDialect dialect;
     private RecordSchema schema;
     private boolean prepared;
 
-    public JdbcTableTarget(ConnectionProvider p, String table, DatabaseType type) {
+    JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type) {
         provider = p;
         this.table = table;
         this.dialect = new DialectRegistry().get(type);
+    }
+
+    public JdbcTableTarget(DatabaseConnectionInfo info, String table) {
+        this(info, table, null);
+    }
+
+    public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
+        this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType());
     }
 
     public void prepare(RecordSchema s, TargetMode mode) {
@@ -26,9 +35,15 @@ public final class JdbcTableTarget implements Target {
         Connection c = provider.getConnection();
         try {
             boolean exists = false;
-            ResultSet r = c.getMetaData().getTables(null, null, table, null);
+            ResultSet r = c.getMetaData().getTables(table.getCatalog(), table.getSchema(), table.getTable(), null);
             try {
-                exists = r.next();
+                while (r.next()) {
+                    String name = r.getString("TABLE_NAME");
+                    if (name == null || table.getTable().equals(name)) {
+                        exists = true;
+                        break;
+                    }
+                }
             } finally {
                 r.close();
             }
@@ -51,9 +66,9 @@ public final class JdbcTableTarget implements Target {
     public BatchWriteResult write(RecordBatch b) {
         if (!prepared) throw new SchemaLoomException("target is not prepared");
         Connection c = provider.getConnection();
-        String sql = dialect.insert(dialect.quote(table), schema);
         boolean old;
         try {
+            String sql = dialect.insert(dialect.quote(table), schema);
             old = c.getAutoCommit();
             c.setAutoCommit(false);
             PreparedStatement ps = c.prepareStatement(sql);
@@ -88,9 +103,9 @@ public final class JdbcTableTarget implements Target {
      * 校验已存在的目标表是否可以安全接收源 Schema。
      * APPEND 不修改目标表，因此所有不兼容情况都必须在这里提前失败。
      */
-    private void validateAppend(DatabaseMetaData metadata, RecordSchema source, String tableName) throws SQLException {
+    private void validateAppend(DatabaseMetaData metadata, RecordSchema source, QualifiedTableName tableName) throws SQLException {
         Map<String, ExistingColumn> target = new LinkedHashMap<String, ExistingColumn>();
-        ResultSet r = metadata.getColumns(null, null, tableName, "%");
+        ResultSet r = metadata.getColumns(tableName.getCatalog(), tableName.getSchema(), tableName.getTable(), "%");
         try {
             while (r.next()) {
                 String name = r.getString("COLUMN_NAME");

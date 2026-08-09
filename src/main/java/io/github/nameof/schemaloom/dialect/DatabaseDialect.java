@@ -1,11 +1,14 @@
 package io.github.nameof.schemaloom.dialect;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 
 import java.util.*;
 
 public interface DatabaseDialect {
     String quote(String identifier);
+
+    String quote(QualifiedTableName table);
 
     String type(FieldSchema field);
 
