@@ -74,7 +74,8 @@ public final class JdbcTableTarget implements Target {
             PreparedStatement ps = c.prepareStatement(sql);
             try {
                 for (DataRecord r : b.getRecords()) {
-                    for (int i = 0; i < schema.getFields().size(); i++) ps.setObject(i + 1, r.get(i));
+                    for (int i = 0; i < schema.getFields().size(); i++)
+                        ps.setObject(i + 1, r.get(i));
                     ps.addBatch();
                 }
                 ps.executeBatch();

@@ -465,7 +465,7 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 
 ## 核心功能&BUG TODO
-- 当前LogicalType对应的实际数据未规范化，例如同样的时间LogicalType在mysql可能返回LocalDate、oracle可能返回厂商专用对象、XLSX可能返回long。 尤其是异库脱敏可能直接报错
+- 当前 LogicalType 对应的实际数据未规范化，例如同样的时间 LogicalType 在 MySQL、Oracle、XLSX 中可能返回不同 Java 对象，异库任务可能直接报错。问题背景、当前实现和解决方案见 [`LOGICAL_TYPE_NORMALIZATION.md`](LOGICAL_TYPE_NORMALIZATION.md)。
 - 目前的驱动加载仅适合开发测试：实际打包运行的路径为application.jar!/drivers/mysql8.properties，URLClassLoader无法加载，生产环境需要调整代码为外部路径加载。  （但我就想用这种方式管理驱动，那就重写类加载器？SPI? ）
 - 使用SchemaCrawler操作数据库，并封装实体类，不对外暴露SchemaCrawler API
 - 索引、字段默认值、自增、注释复制
