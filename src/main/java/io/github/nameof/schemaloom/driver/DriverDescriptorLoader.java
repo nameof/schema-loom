@@ -13,6 +13,21 @@ import java.util.*;
 public final class DriverDescriptorLoader {
     /** 从 classpath 下的 drivers 资源目录加载驱动描述；非文件系统资源不支持动态读取。 */
     public List<DriverDescriptor> load() {
+        // 生产运行时，默认加载用户目录
+        Path external = Paths.get(System.getProperty("user.dir"), "drivers").toAbsolutePath().normalize();
+        if (Files.isDirectory(external)) return load(external);
+
+        try {
+            // 加载项目目录下的drivers，用于开发测试
+            Path codeSource = Paths.get(DriverDescriptorLoader.class.getProtectionDomain()
+                    .getCodeSource().getLocation().toURI());
+            Path sibling = (Files.isDirectory(codeSource) ? codeSource : codeSource.getParent())
+                    .resolve("drivers").toAbsolutePath().normalize();
+            if (Files.isDirectory(sibling)) return load(sibling);
+        } catch (Exception e) {
+            throw new SchemaLoomException("cannot locate application drivers directory", e);
+        }
+
         URLResource resource = URLResource.from(Thread.currentThread().getContextClassLoader().getResource("drivers"));
         if (resource == null) return Collections.emptyList();
         return load(resource.path);

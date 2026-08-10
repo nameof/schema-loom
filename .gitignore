@@ -1,7 +1,7 @@
 /target/
 /.idea/
 *.iml
-/drivers/
+# Keep the production drivers directory versioned.
 *.log
 .env
 .env.*

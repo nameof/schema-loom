@@ -187,5 +187,6 @@ public class EtlTaskTest {
                 .targetMode(TargetMode.REPLACE)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);
+        assertTrue(result.getWritten() > 0);
     }
 }

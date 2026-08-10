@@ -313,14 +313,14 @@ ConnectionProvider provider =
 
 ### Quickstart：管理自定义 JDBC 驱动
 
-`JdbcDriverLoader` 无参构造默认读取 classpath 下的 `drivers` 资源目录，对应源码目录 `src/main/resources/drivers`。每个 `.properties` 文件描述一个驱动，`classpath` 只能引用该目录内的 JAR：
+`JdbcDriverLoader` 无参构造优先读取应用工作目录下的 `drivers`，即 `${user.dir}/drivers`；未找到时才回退到 classpath 下的 `drivers` 资源目录，对应源码目录 `src/main/resources/drivers`。生产发布时将 `drivers` 与 `application.jar` 放在同一目录。每个 `.properties` 文件描述一个驱动，`classpath` 只能引用该目录内的 JAR：
 
 目录结构：
 
 ```text
 drivers/
   mysql8.properties
-  mysql-connector-j-8.0.28.jar
+  mysql-connector-java-8.0.28.jar
 ```
 
 ```properties
@@ -466,7 +466,6 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 ## 核心功能&BUG TODO
 - 当前 LogicalType 对应的实际数据未规范化，例如同样的时间 LogicalType 在 MySQL、Oracle、XLSX 中可能返回不同 Java 对象，异库任务可能直接报错。问题背景、当前实现和解决方案见 [`LOGICAL_TYPE_NORMALIZATION.md`](LOGICAL_TYPE_NORMALIZATION.md)。
-- 目前的驱动加载仅适合开发测试：实际打包运行的路径为application.jar!/drivers/mysql8.properties，URLClassLoader无法加载，生产环境需要调整代码为外部路径加载。  （但我就想用这种方式管理驱动，那就重写类加载器？SPI? ）
 - 使用SchemaCrawler操作数据库，并封装实体类，不对外暴露SchemaCrawler API
 - 索引、字段默认值、自增、注释复制
 - 明确区分 TABLE 和 VIEW，视图是只读对象，不能按普通表处理；可支持复制视图
@@ -476,7 +475,6 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 - TEXT/LONGTEXT ：用户可选择忽略
 - CSV 配置：自定义quote、escape
 - 日志输出
-- XLSX指定sheet
 - 代码审计：所有逻辑均正确关闭已打开资源
 
 ## 优化TODO
