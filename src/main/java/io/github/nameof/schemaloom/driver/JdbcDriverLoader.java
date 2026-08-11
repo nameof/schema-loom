@@ -35,16 +35,22 @@ public final class JdbcDriverLoader implements AutoCloseable {
 
     /** 通过完整连接配置按数据库类型、优先级和服务端版本自动选择驱动。 */
     public synchronized ConnectionProvider connect(DatabaseConnectionInfo config) {
-        if (config == null) throw new SchemaLoomException("connection config is required");
+        if (config == null) {
+            throw new SchemaLoomException("connection config is required");
+        }
         String driverId = config.getDriverId();
-        List<DriverDescriptor> candidates = new ArrayList<DriverDescriptor>();
-        for (DriverDescriptor d : descriptors)
+        List<DriverDescriptor> candidates = new ArrayList<>();
+        for (DriverDescriptor d : descriptors) {
             if ((driverId == null || driverId.equals(d.getId())) && config.getDatabaseType() == d.getDatabaseType())
                 candidates.add(d);
+        }
         sort(candidates);
-        if (driverId != null && candidates.isEmpty()) throw new SchemaLoomException("driver not found: " + driverId);
-        if (candidates.isEmpty())
+        if (driverId != null && candidates.isEmpty()) {
+            throw new SchemaLoomException("driver not found: " + driverId);
+        }
+        if (candidates.isEmpty()) {
             throw new SchemaLoomException("no JDBC driver matches database type: " + config.getDatabaseType());
+        }
         Throwable last = null;
         for (DriverDescriptor d : candidates) {
             try {
@@ -121,7 +127,9 @@ public final class JdbcDriverLoader implements AutoCloseable {
         if (supplied != null) p.putAll(supplied);
         // Driver.connect 创建新的数据库会话，不会复用缓存中的 Connection。
         Connection c = e.driver.connect(url, p);
-        if (c == null) throw new SQLException("driver rejected URL");
+        if (c == null) {
+            throw new SQLException("driver rejected URL");
+        }
         if (!VersionRange.accept(d.getVersionRange(), c.getMetaData().getDatabaseProductVersion())) {
             // 版本不匹配的连接不能交给调用方；若没有其他引用，同时释放驱动类加载器。
             try {

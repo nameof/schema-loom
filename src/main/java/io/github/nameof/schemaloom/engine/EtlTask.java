@@ -83,8 +83,9 @@ public final class EtlTask implements Callable<EtlResult> {
                         if (errorPolicy == ErrorPolicy.ISOLATE_AND_CONTINUE) {
                             for (DataRecord r : out) {
                                 try {
-                                    target.write(new RecordBatch(schema, Collections.singletonList(r)));
-                                    writtenCounter[0]++;
+                                    BatchWriteResult single = target.write(new RecordBatch(schema, Collections.singletonList(r)));
+                                    writtenCounter[0] += single.getWritten();
+                                    failedCounter[0] += single.getFailed();
                                 } catch (Throwable one) {
                                     failedCounter[0]++;
                                     addError(errors, new EtlError(readCounter[0], "write", one));
@@ -112,7 +113,7 @@ public final class EtlTask implements Callable<EtlResult> {
             transformed = transformedCounter[0];
             filtered = filteredCounter[0];
             written = writtenCounter[0];
-            failed = failedCounter[0] + 1;
+            failed = failedCounter[0];
             if (Thread.currentThread().isInterrupted() || e.getMessage() != null && e.getMessage().contains("interrupted")) {
                 status = EtlStatus.CANCELLED;
                 Thread.currentThread().interrupt();

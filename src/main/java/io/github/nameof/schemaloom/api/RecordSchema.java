@@ -35,13 +35,15 @@ public final class RecordSchema {
     }
 
     public int indexOf(String name) {
-        for (int i = 0; i < fields.size(); i++) if (fields.get(i).getName().equals(name)) return i;
-        return -1;
+        for (int i = 0; i < fields.size(); i++) {
+            if (fields.get(i).getName().equals(name)) {
+                return i;
+            }
+        }
+        throw new IllegalArgumentException("unknown field: " + name);
     }
 
     public FieldSchema field(String name) {
-        int i = indexOf(name);
-        if (i < 0) throw new IllegalArgumentException("unknown field: " + name);
-        return fields.get(i);
+        return fields.get(indexOf(name));
     }
 }

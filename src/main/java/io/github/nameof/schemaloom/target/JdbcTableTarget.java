@@ -64,7 +64,8 @@ public final class JdbcTableTarget implements Target {
     }
 
     public BatchWriteResult write(RecordBatch b) {
-        if (!prepared) throw new SchemaLoomException("target is not prepared");
+        if (!prepared)
+            throw new SchemaLoomException("target is not prepared");
         Connection c = provider.getConnection();
         boolean old;
         try {
