@@ -10,17 +10,25 @@ import java.time.*;
 import java.util.*;
 
 public final class XlsxSource implements Source {
+    private static final int DEFAULT_BATCH_SIZE = 1000;
     private final Path path;
     private final String sheet;
+    private final int batchSize;
     private final RecordSchema explicit;
     private RecordSchema inferred;
 
     public XlsxSource(Path path, String sheet, RecordSchema explicit) {
+        this(path, sheet, explicit, DEFAULT_BATCH_SIZE);
+    }
+
+    public XlsxSource(Path path, String sheet, RecordSchema explicit, int batchSize) {
         if (!path.toString().toLowerCase(Locale.ENGLISH).endsWith(".xlsx"))
             throw new IllegalArgumentException("only .xlsx is supported");
         this.path = path;
         this.sheet = sheet;
         this.explicit = explicit;
+        if (batchSize <= 0) throw new IllegalArgumentException("batchSize must be positive");
+        this.batchSize = batchSize;
     }
 
     /** 返回显式 Schema；否则扫描指定 Sheet 的标题和最多 1000 行样本。 */
@@ -56,7 +64,7 @@ public final class XlsxSource implements Source {
                 for (int i = 0; i < s.getFields().size(); i++) v.add(i < values.size() ? values.get(i) : null);
                 b.add(new DataRecord(s, v));
                 // 达到批大小后立即释放当前批次，控制内存占用。
-                if (b.size() == 1000) {
+                if (b.size() == batchSize) {
                     c.accept(new RecordBatch(s, b));
                     b = new ArrayList<DataRecord>();
                 }

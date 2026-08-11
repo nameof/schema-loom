@@ -43,6 +43,23 @@ public class CsvBoundaryTest {
     }
 
     @Test
+    public void usesConfiguredBatchSize() throws Exception {
+        Path file = Files.createTempFile("schemaloom-batch", ".csv");
+        Files.write(file, Arrays.asList("id", "1", "2", "3"), StandardCharsets.UTF_8);
+        RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32)));
+        CsvSource source = new CsvSource(file, schema, StandardCharsets.UTF_8, ',', 0, 2);
+        List<Integer> sizes = new ArrayList<Integer>();
+        source.read(batch -> sizes.add(batch.getRecords().size()));
+        assertEquals(Arrays.asList(2, 1), sizes);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonPositiveBatchSize() throws Exception {
+        new CsvSource(Files.createTempFile("schemaloom-batch", ".csv"), null,
+                StandardCharsets.UTF_8, ',', 0, 0);
+    }
+
+    @Test
     public void supportsReplaceAndAppend() throws Exception {
         Path file = Files.createTempFile("schemaloom-target", ".csv");
         RecordSchema schema = new RecordSchema(Arrays.asList(FieldSchema.of("id", LogicalType.INT32), FieldSchema.of("name", LogicalType.STRING)));

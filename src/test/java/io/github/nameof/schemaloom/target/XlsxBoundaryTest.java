@@ -74,4 +74,26 @@ public class XlsxBoundaryTest {
         assertEquals(LogicalType.DECIMAL, schema.field("amount").getLogicalType());
         assertEquals(LogicalType.STRING, schema.field("name").getLogicalType());
     }
+
+    @Test
+    public void usesConfiguredBatchSize() throws Exception {
+        Path file = Files.createTempFile("schemaloom-xlsx-batch", ".xlsx");
+        RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32)));
+        XlsxTarget target = new XlsxTarget(file);
+        target.prepare(schema, TargetMode.REPLACE);
+        List<DataRecord> records = new ArrayList<DataRecord>();
+        for (int i = 1; i <= 3; i++) records.add(new DataRecord(schema, Collections.<Object>singletonList(i)));
+        target.write(new RecordBatch(schema, records));
+        target.close();
+
+        XlsxSource source = new XlsxSource(file, "Sheet1", schema, 2);
+        List<Integer> sizes = new ArrayList<Integer>();
+        source.read(batch -> sizes.add(batch.getRecords().size()));
+        assertEquals(Arrays.asList(2, 1), sizes);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonPositiveBatchSize() throws Exception {
+        new XlsxSource(Files.createTempFile("schemaloom-xlsx-batch", ".xlsx"), "Sheet1", null, 0);
+    }
 }

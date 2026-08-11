@@ -9,24 +9,32 @@ import java.time.*;
 import java.util.*;
 
 public final class CsvSource implements Source {
+    private static final int DEFAULT_BATCH_SIZE = 1000;
     private final Path path;
     private final Charset charset;
     private final char delimiter;
     private final int headerLine;
+    private final int batchSize;
     private final RecordSchema explicit;
     private RecordSchema inferred;
 
     public CsvSource(Path path) {
-        this(path, null, StandardCharsets.UTF_8, ',', 0);
+        this(path, null, StandardCharsets.UTF_8, ',', 0, DEFAULT_BATCH_SIZE);
     }
 
     public CsvSource(Path path, RecordSchema schema, Charset charset, char delimiter, int headerLine) {
+        this(path, schema, charset, delimiter, headerLine, DEFAULT_BATCH_SIZE);
+    }
+
+    public CsvSource(Path path, RecordSchema schema, Charset charset, char delimiter, int headerLine, int batchSize) {
         this.path = Objects.requireNonNull(path, "path");
         this.explicit = schema;
         this.charset = Objects.requireNonNull(charset, "charset");
         this.delimiter = delimiter;
         this.headerLine = headerLine;
         if (headerLine < 0) throw new IllegalArgumentException("headerLine");
+        if (batchSize <= 0) throw new IllegalArgumentException("batchSize must be positive");
+        this.batchSize = batchSize;
     }
 
     /** 返回显式 Schema；未提供时只扫描一次标题和最多 1000 行样本。 */
@@ -99,7 +107,7 @@ public final class CsvSource implements Source {
                         values.add(i < row.size() ? convert(row.get(i), s.getFields().get(i).getLogicalType()) : null);
                     batch.add(new DataRecord(s, values));
                     // 达到批大小后立即交给任务引擎处理。
-                    if (batch.size() == 1000) {
+                    if (batch.size() == batchSize) {
                         consumer.accept(new RecordBatch(s, batch));
                         batch = new ArrayList<DataRecord>();
                     }
