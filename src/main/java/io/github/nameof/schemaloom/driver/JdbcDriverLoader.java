@@ -116,7 +116,9 @@ public final class JdbcDriverLoader implements AutoCloseable {
         Entry e = cache.get(d.getId());
         if (e == null) {
             URL[] us = new URL[d.getClasspath().size()];
-            for (int i = 0; i < us.length; i++) us[i] = d.getClasspath().get(i).toUri().toURL();
+            for (int i = 0; i < us.length; i++) {
+                us[i] = d.getClasspath().get(i).toUri().toURL();
+            }
             DriverClassLoader cl = new DriverClassLoader(us, getClass().getClassLoader(), d.getDriverPackages());
             Driver driver = (Driver) Class.forName(d.getDriverClass(), true, cl).newInstance();
             e = new Entry(cl, driver);
