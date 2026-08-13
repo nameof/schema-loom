@@ -61,7 +61,9 @@ public final class XlsxSource implements Source {
                     return;
                 }
                 List<Object> v = new ArrayList<Object>();
-                for (int i = 0; i < s.getFields().size(); i++) v.add(i < values.size() ? values.get(i) : null);
+                for (int i = 0; i < s.getFields().size(); i++) {
+                    v.add(i < values.size() ? values.get(i) : null);
+                }
                 b.add(new DataRecord(s, v));
                 // 达到批大小后立即释放当前批次，控制内存占用。
                 if (b.size() == batchSize) {

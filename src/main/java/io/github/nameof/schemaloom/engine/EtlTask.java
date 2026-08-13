@@ -79,7 +79,6 @@ public final class EtlTask implements Callable<EtlResult> {
                         writtenCounter[0] += wr.getWritten();
                         failedCounter[0] += wr.getFailed();
                     } catch (Throwable e) {
-                        addError(errors, new EtlError(readCounter[0], "write", e));
                         if (errorPolicy == ErrorPolicy.ISOLATE_AND_CONTINUE) {
                             for (DataRecord r : out) {
                                 try {
@@ -93,7 +92,9 @@ public final class EtlTask implements Callable<EtlResult> {
                             }
                         } else if (errorPolicy == ErrorPolicy.SKIP_BATCH) {
                             failedCounter[0] += out.size();
+                            addError(errors, new EtlError(readCounter[0], "write", e));
                         } else {
+                            addError(errors, new EtlError(readCounter[0], "write", e));
                             throw new SchemaLoomException("write failed", e);
                         }
                     }
@@ -107,7 +108,9 @@ public final class EtlTask implements Callable<EtlResult> {
             filtered = filteredCounter[0];
             written = writtenCounter[0];
             failed = failedCounter[0];
-            if (failed > 0) status = EtlStatus.PARTIAL;
+            if (failed > 0) {
+                status = written > 0 ? EtlStatus.PARTIAL : EtlStatus.FAILED;
+            }
         } catch (Throwable e) {
             read = readCounter[0];
             transformed = transformedCounter[0];

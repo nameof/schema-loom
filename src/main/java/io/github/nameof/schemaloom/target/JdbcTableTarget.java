@@ -87,13 +87,13 @@ public final class JdbcTableTarget implements Target {
                     c.rollback();
                 } catch (SQLException ignored) {
                 }
-                throw new SchemaLoomException("JDBC batch failed", e);
+                throw new SchemaLoomException("JDBC batch failed: " + e.getMessage(), e);
             } finally {
                 ps.close();
                 c.setAutoCommit(old);
             }
         } catch (SQLException e) {
-            throw new SchemaLoomException("cannot write JDBC target", e);
+            throw new SchemaLoomException("cannot write JDBC target: " + e.getMessage(), e);
         }
     }
 

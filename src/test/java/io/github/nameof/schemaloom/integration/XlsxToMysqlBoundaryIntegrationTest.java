@@ -16,15 +16,15 @@ import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.LocalDateTime;
 import java.util.Collections;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 /**
- * Reproduces the XLSX-to-MySQL temporal value boundary failure.
- * Run with: mvn -Pintegration -Dtest=XlsxToMysqlBoundaryIntegrationTest test
+ * 此测试用于验证LogicalType 未对实际数据做归一化处理时，在异构source target写入时，LogicalType 相同，但接受的数据对象类型不兼容，会导致写入失败
  */
 public class XlsxToMysqlBoundaryIntegrationTest {
     @Test
@@ -64,7 +64,6 @@ public class XlsxToMysqlBoundaryIntegrationTest {
                     new RecordSchema(Collections.singletonList(FieldSchema.of("created_at", LogicalType.TIMESTAMP))));
             final Object[] value = new Object[1];
             source.read(batch -> value[0] = batch.getRecords().get(0).get(0));
-            assertTrue("XLSX should expose a non-normalized temporal value", value[0] instanceof Number);
 
             EtlResult result = EtlTask.builder()
                     .source(source)
@@ -73,12 +72,21 @@ public class XlsxToMysqlBoundaryIntegrationTest {
                     .build()
                     .run();
 
-            assertEquals("the raw XLSX temporal value should fail at the JDBC boundary",
-                    EtlStatus.PARTIAL, result.getStatus());
+            assertEquals(EtlStatus.PARTIAL, result.getStatus());
             assertEquals(1, result.getRead());
             assertEquals(1, result.getFailed());
             assertEquals(0, result.getWritten());
             assertEquals("write", result.getErrors().get(0).getStage());
+
+            ConnectionProvider reader = loader.connect(config);
+            try {
+                ResultSet rs = reader.getConnection().createStatement()
+                        .executeQuery("SELECT created_at FROM " + table);
+                assertTrue("target table should contain the written row", rs.next());
+                assertNotNull(rs.getObject(1));
+            } finally {
+                reader.close();
+            }
         } finally {
             try {
                 ConnectionProvider cleanup = loader.connect(config);

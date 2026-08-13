@@ -107,7 +107,7 @@ public final class JdbcTableSource implements Source {
                 statement.close();
             }
         } catch (SQLException e) {
-            throw new SchemaLoomException("cannot count JDBC table", e);
+            throw new SchemaLoomException("cannot count JDBC table: " + e.getMessage(), e);
         }
     }
 
