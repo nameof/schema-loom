@@ -7,7 +7,7 @@ public final class RecordSchema {
     private final List<String> primaryKeyFields;
 
     public RecordSchema(List<FieldSchema> fields) {
-        this(fields, Collections.<String>emptyList());
+        this(fields, Collections.emptyList());
     }
 
     /** 校验字段和主键引用，并复制为不可变列表，避免调用方后续修改 Schema。 */

@@ -58,9 +58,9 @@ Target（自行尝试写入）
 | 组件 | LogicalType 来源 | 实际值处理 | 当前归一化程度 |
 |---|---|---|---|
 | `CsvSource` | 显式 Schema，或扫描最多 1000 行推断 | `convert()` 将部分文本转为 Java 类型 | 部分完成 |
-| `XlsxSource` | 显式 Schema，或扫描最多 1000 行推断 | Hutool 返回什么就保存什么 | 未完成 |
-| `JdbcQuerySource` | `ResultSetMetaData.getColumnType()` | 无类型 `ResultSet.getObject()` | 未完成 |
-| `JdbcTableSource` | `DatabaseMetaData.getColumns()` | 委托 `JdbcQuerySource` 读取 | 未完成 |
+| `XlsxSource` | 显式 Schema，或扫描最多 1000 行推断 | 通过 `LogicalTypeCatalog` 解码为标准 Java 类型 | 已完成 |
+| `JdbcQuerySource` | `ResultSetMetaData.getColumnType()` | 通过 `LogicalTypeCatalog` 类型化读取 | 已完成 |
+| `JdbcTableSource` | `DatabaseMetaData.getColumns()` | 委托已归一化的 `JdbcQuerySource` 读取 | 已完成 |
 | `MemorySource` | 调用方传入 | 原样保存 | 未校验 |
 | `CsvTarget` | Source Schema | `String.valueOf()` | Target 自行处理 |
 | `XlsxTarget` | Source Schema | 原样交给 Hutool | Target 自行处理 |
@@ -352,7 +352,101 @@ if (!targetType.isSupported()) {
 4. 实现 `ExcelValueCodec`，修复 XLSX 数字日期写 MySQL 的现有失败测试。
 5. 提取并补全 `TextValueCodec`，统一 CSV 的解析和格式化。
 6. 增加带时区逻辑类型以及数据库方言能力检查。
-7. 为 Memory Source/Target 和 Transformer 增加契约测试。
-8. 建立 MySQL、Oracle、SQL Server 的真实驱动类型矩阵和往返集成测试。
+
+第 7、8 项不属于当前项目范围，见“明确不支持的场景”。
 
 验收标准：任意 `DataRecord` 的非空值都符合标准类型契约；任意 Target 只处理标准类型；不支持或有损的转换在写入前给出字段级错误。
+
+## 10. 当前实现状态
+
+截至 2026-08-13，当前代码已经完成：
+
+| 能力 | 状态 | 说明 |
+|---|---|---|
+| 标准 Java 类型映射 | 已完成 | `LogicalValues` 集中维护并在初始化时检查是否覆盖全部 `LogicalType` |
+| `DataRecord` 类型校验 | 已完成 | 创建记录时拒绝厂商对象和不匹配的 Java 类型 |
+| CSV Source/Target | 已完成基础能力 | 支持标准标量、时间类型和 Base64 二进制 |
+| XLSX Source/Target | 已完成基础能力 | 支持 Excel 日期序列、标准时间、ISO 字符串和 Base64 二进制 |
+| JDBC Source/Target | 已完成基础能力 | 使用类型化读取和明确 setter；带时区类型使用 JDBC 4.2 API |
+| 数据库能力检查 | 已完成 | 每个方言显式声明每个 `LogicalType` 的支持能力，`prepare` 阶段拒绝不支持类型 |
+| 统一扩展约束 | 已完成 | `LogicalTypeCatalog` 覆盖全部类型；新增类型遗漏定义或方言映射会立即失败 |
+
+因此，当前项目范围内的 LogicalType 数据归一化 feature 已完成。
+
+## 10.1 明确不支持的场景
+
+以下场景不在当前项目范围内，不作为本 feature 的待办事项：
+
+| 场景 | 当前行为 |
+|---|---|
+| JDBC `TIME WITH TIME ZONE` / `TIMESTAMP WITH TIME ZONE` 的 Schema 自动推断 | 不保证保留时区语义；需要时由调用方提供显式 Schema |
+| JDBC `ARRAY`、`STRUCT`、`REF` 等复杂对象 | 不支持；应在接入层转换为标量或字符串后再进入 SchemaLoom |
+| 特定厂商 JDBC 驱动的全部类型矩阵 | 不保证；项目仅覆盖标准 JDBC API 和已有测试场景 |
+| Memory Source/Target、Transformer 的独立类型契约测试 | 不单独提供；统一由 `DataRecord` 入口校验保证 |
+| Excel 日期/时间显示样式定制 | 不保证；仅保证标准值写入和读回语义 |
+| CSV/XLSX 的格式策略配置化 | 不支持；二进制固定使用 Base64，带时区时间固定使用 ISO-8601 文本 |
+
+## 11. 新增 LogicalType 的维护规则
+
+以新增 `TEXT` 为例，不能只修改 `LogicalType` 枚举。必须按以下顺序完成：
+
+1. 在 `LogicalValues` 增加 `TEXT -> 标准 Java 类型`，并补 `LogicalValuesTest`。
+2. 在 `TextValueCodec` 增加文本解析和格式化规则；明确它与 `STRING` 的区别、长度和空值语义。
+3. 在 `ExcelValueCodec` 增加 XLSX 读写规则；不能支持时显式拒绝，不能落入普通 `default` 分支。
+4. 在 `JdbcValueCodec` 增加 JDBC 读取规则，并在 `JdbcTypes` 声明 JDBC 类型到 `TEXT` 的映射。
+5. 在每个数据库方言声明建表类型、参数绑定类型和是否支持无损写入。
+6. 在每个 Target 声明是否支持该类型，并在 `prepare` 阶段拒绝不支持或有损转换。
+7. 增加 CSV、XLSX、JDBC 以及至少一个真实数据库的往返测试。
+8. 更新本表和 README 的能力说明。
+
+核心映射集中在 `LogicalValues`，但 Source/Target 的 `switch` 仍然是必要的适配层：同一个逻辑类型在 JDBC、Excel、CSV 和不同数据库中的外部 API 不同。适配层禁止使用“未知类型按字符串处理”的默认降级；新增类型遗漏时应直接失败或由测试暴露。
+
+## 12. 新 Source / Target 开发模板
+
+### 新 Source
+
+```text
+1. schema() 只产生 LogicalType，不把厂商 Java 类暴露给下游。
+2. read() 逐字段调用本 Source 的 Decoder，转换完成后再创建 DataRecord。
+3. Decoder 明确处理 null、溢出、精度、时区和不支持类型。
+4. 增加“原始值 -> DataRecord 标准值”的单元测试。
+5. 增加 Source -> MemoryTarget 的最小集成测试。
+```
+
+### 新 Target
+
+```text
+1. prepare() 保存 Schema，并先检查每个 LogicalType 的能力。
+2. write() 只接收 DataRecord 标准类型，按字段调用 Encoder。
+3. Encoder 不使用任意对象 toString()，也不使用无目标类型的 setObject()。
+4. 不支持或有损的类型在 prepare() 失败，而不是写入中途失败。
+5. 增加“标准值 -> 目标文件/数据库 -> Source 读回”的往返测试。
+```
+
+### 适配层的设计边界
+
+`LogicalValues` 负责跨系统不变的标准类型契约；`TextValueCodec`、`ExcelValueCodec`、`JdbcValueCodec` 和数据库方言负责外部系统差异。不要把所有格式的转换继续堆进 `DataRecord`，也不要为了消除所有 `switch` 而引入一个隐藏默认转换表。新增类型必须显式声明每个边界是否支持。
+
+## 13. 强制扩展约束
+
+类型能力的唯一注册入口是 `LogicalTypeCatalog`。每一个 `LogicalTypeDefinition` 构造时必须提供以下能力：
+
+```text
+标准 Java 类型
+文本 parse / format
+XLSX decode / encode
+JDBC read / write / SQL NULL 类型
+```
+
+因此新增 `LogicalType` 后，如果没有在 `LogicalTypeCatalog` 完整注册，Catalog 初始化会因枚举覆盖检查失败；无法只依赖某个格式的 `default` 分支继续运行。`TextValueCodec`、`ExcelValueCodec`、`JdbcValueCodec` 只是兼容门面，统一委托 Catalog，Source 和 Target 不再自行解释逻辑类型。
+
+数据库能力的唯一入口是 `DatabaseDialect.mapping(LogicalType)`。每个方言都必须返回 `DatabaseTypeMapping`：支持时声明 DDL 类型，不支持时显式返回 `unsupported()`。`JdbcTableTarget.prepare()` 会先执行能力检查；不能无损表示的类型在写入前以字段级错误拒绝。
+
+对应测试：
+
+```text
+LogicalValuesTest：Catalog 覆盖每个 LogicalType，并定义 JDBC NULL 类型。
+DialectTest：每个 DatabaseDialect 为每个 LogicalType 声明能力。
+```
+
+新增 Source 或 Target 时不得新增按 `LogicalType` 分支的业务代码。它们应调用 `LogicalTypeCatalog.get(field.getLogicalType())` 的 decode/encode/read/write 方法；新格式特有的表示规则应通过新的类型定义接口加入 Catalog。这样遗漏会由接口构造、Catalog 覆盖检查或能力测试暴露，而不是依赖开发者记忆维护清单。

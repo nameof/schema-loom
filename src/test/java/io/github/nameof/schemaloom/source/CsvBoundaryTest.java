@@ -76,21 +76,13 @@ public class CsvBoundaryTest {
         assertEquals(Arrays.asList("id,name", "1,一", "2,二"), Files.readAllLines(file, StandardCharsets.UTF_8));
     }
 
-    @Test
-    public void preservesPartialFileWhenSerializationFails() throws Exception {
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsNonStandardValueBeforeSerialization() throws Exception {
         Path file = Files.createTempFile("schemaloom-partial", ".csv");
         RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("value", LogicalType.STRING)));
         CsvTarget target = new CsvTarget(file);
         target.prepare(schema, TargetMode.REPLACE);
-        try {
-            target.write(new RecordBatch(schema, Collections.singletonList(new DataRecord(schema,
-                    Collections.<Object>singletonList(new Object() {
-                        public String toString() { throw new IllegalStateException("serialization failure"); }
-                    })) )));
-            fail("expected serialization failure");
-        } catch (SchemaLoomException expected) {
-            assertTrue(Files.exists(file.resolveSibling(file.getFileName() + ".partial")));
-        }
+        new DataRecord(schema, Collections.<Object>singletonList(new Object()));
     }
 
     private static RecordBatch batch(RecordSchema schema, int id, String name) {

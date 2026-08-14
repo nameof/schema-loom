@@ -104,7 +104,7 @@ public final class CsvSource implements Source {
                     List<String> row = parse(line);
                     List<Object> values = new ArrayList<Object>();
                     for (int i = 0; i < s.getFields().size(); i++)
-                        values.add(i < row.size() ? convert(row.get(i), s.getFields().get(i).getLogicalType()) : null);
+                        values.add(i < row.size() ? LogicalTypeCatalog.get(s.getFields().get(i).getLogicalType()).parseText(row.get(i)) : null);
                     batch.add(new DataRecord(s, values));
                     // 达到批大小后立即交给任务引擎处理。
                     if (batch.size() == batchSize) {
@@ -178,32 +178,6 @@ public final class CsvSource implements Source {
         if ((a == LogicalType.DATE && b == LogicalType.TIMESTAMP) || (a == LogicalType.TIMESTAMP && b == LogicalType.DATE))
             return LogicalType.TIMESTAMP;
         return LogicalType.STRING;
-    }
-
-    private static Object convert(String v, LogicalType t) {
-        if (v == null || v.isEmpty()) return null;
-        try {
-            switch (t) {
-                case BOOLEAN:
-                    return Boolean.valueOf(v);
-                case INT16:
-                    return Short.valueOf(v);
-                case INT32:
-                    return Integer.valueOf(v);
-                case INT64:
-                    return Long.valueOf(v);
-                case DECIMAL:
-                    return new java.math.BigDecimal(v);
-                case DATE:
-                    return LocalDate.parse(v);
-                case TIMESTAMP:
-                    return LocalDateTime.parse(v);
-                default:
-                    return v;
-            }
-        } catch (RuntimeException e) {
-            throw new SchemaLoomException("invalid CSV value: " + v, e);
-        }
     }
 
     public void close() {

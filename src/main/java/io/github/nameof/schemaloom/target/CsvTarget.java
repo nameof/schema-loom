@@ -73,7 +73,7 @@ public final class CsvTarget implements Target {
                 for (int i = 0; i < schema.getFields().size(); i++) {
                     if (i > 0) writer.write(delimiter);
                     Object v = r.get(i);
-                    writer.write(escape(v == null ? "" : String.valueOf(v)));
+                    writer.write(escape(LogicalTypeCatalog.get(batch.getSchema().getFields().get(i).getLogicalType()).formatText(v)));
                 }
                 writer.write("\n");
             }

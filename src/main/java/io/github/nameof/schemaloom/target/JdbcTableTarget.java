@@ -32,6 +32,7 @@ public final class JdbcTableTarget implements Target {
 
     public void prepare(RecordSchema s, TargetMode mode) {
         schema = s;
+        validateCapabilities(s);
         Connection c = provider.getConnection();
         try {
             boolean exists = false;
@@ -63,6 +64,15 @@ public final class JdbcTableTarget implements Target {
         }
     }
 
+    private void validateCapabilities(RecordSchema source) {
+        for (FieldSchema field : source.getFields()) {
+            DatabaseTypeMapping mapping = dialect.mapping(field.getLogicalType());
+            if (mapping == null || !mapping.isSupported())
+                throw new SchemaLoomException("target does not support logical type " + field.getLogicalType()
+                        + " for field '" + field.getName() + "'");
+        }
+    }
+
     public BatchWriteResult write(RecordBatch b) {
         if (!prepared)
             throw new SchemaLoomException("target is not prepared");
@@ -76,7 +86,7 @@ public final class JdbcTableTarget implements Target {
             try {
                 for (DataRecord r : b.getRecords()) {
                     for (int i = 0; i < schema.getFields().size(); i++)
-                        ps.setObject(i + 1, r.get(i));
+                        setValue(ps, i + 1, schema.getFields().get(i), r.get(i));
                     ps.addBatch();
                 }
                 ps.executeBatch();
@@ -95,6 +105,10 @@ public final class JdbcTableTarget implements Target {
         } catch (SQLException e) {
             throw new SchemaLoomException("cannot write JDBC target: " + e.getMessage(), e);
         }
+    }
+
+    private void setValue(PreparedStatement ps, int index, FieldSchema field, Object value) throws SQLException {
+        LogicalTypeCatalog.get(field.getLogicalType()).writeJdbc(ps, index, value);
     }
 
     public void close() {

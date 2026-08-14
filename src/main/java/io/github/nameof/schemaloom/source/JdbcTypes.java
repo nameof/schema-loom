@@ -31,11 +31,13 @@ public final class JdbcTypes {
             case Types.DATE:
                 return LogicalType.DATE;
             case Types.TIME:
-            case Types.TIME_WITH_TIMEZONE:
                 return LogicalType.TIME;
+            case Types.TIME_WITH_TIMEZONE:
+                return LogicalType.OFFSET_TIME;
             case Types.TIMESTAMP:
-            case Types.TIMESTAMP_WITH_TIMEZONE:
                 return LogicalType.TIMESTAMP;
+            case Types.TIMESTAMP_WITH_TIMEZONE:
+                return LogicalType.OFFSET_TIMESTAMP;
             case Types.BINARY:
             case Types.VARBINARY:
             case Types.LONGVARBINARY:

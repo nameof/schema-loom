@@ -9,6 +9,7 @@ import org.junit.Test;
 import java.io.OutputStream;
 import java.nio.file.*;
 import java.util.*;
+import java.time.*;
 
 import static org.junit.Assert.*;
 
@@ -90,6 +91,30 @@ public class XlsxBoundaryTest {
         List<Integer> sizes = new ArrayList<Integer>();
         source.read(batch -> sizes.add(batch.getRecords().size()));
         assertEquals(Arrays.asList(2, 1), sizes);
+    }
+
+    @Test
+    public void encodesLogicalDateAndBinaryValues() throws Exception {
+        Path file = Files.createTempFile("schemaloom-xlsx-values", ".xlsx");
+        RecordSchema schema = new RecordSchema(Arrays.asList(
+                FieldSchema.of("day", LogicalType.DATE),
+                FieldSchema.of("created_at", LogicalType.TIMESTAMP),
+                FieldSchema.of("payload", LogicalType.BINARY),
+                FieldSchema.of("offset_at", LogicalType.OFFSET_TIMESTAMP)));
+        XlsxTarget target = new XlsxTarget(file);
+        target.prepare(schema, TargetMode.REPLACE);
+        target.write(new RecordBatch(schema, Collections.singletonList(new DataRecord(schema, Arrays.<Object>asList(
+                LocalDate.of(2026, 8, 13), LocalDateTime.of(2026, 8, 13, 14, 30),
+                new byte[]{1, 2, 3}, OffsetDateTime.parse("2026-08-13T14:30:00+08:00"))))));
+        target.close();
+
+        XlsxSource source = new XlsxSource(file, "Sheet1", schema);
+        final List<DataRecord> records = new ArrayList<DataRecord>();
+        source.read(batch -> records.addAll(batch.getRecords()));
+        assertEquals(LocalDate.of(2026, 8, 13), records.get(0).get(0));
+        assertEquals(LocalDateTime.of(2026, 8, 13, 14, 30), records.get(0).get(1));
+        assertArrayEquals(new byte[]{1, 2, 3}, (byte[]) records.get(0).get(2));
+        assertEquals(OffsetDateTime.parse("2026-08-13T14:30+08:00"), records.get(0).get(3));
     }
 
     @Test(expected = IllegalArgumentException.class)

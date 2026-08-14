@@ -19,4 +19,12 @@ public class DialectTest {
                 .quote(new QualifiedTableName("shop", "sales", "orders")));
         assertTrue(new DialectRegistry().get(DatabaseType.SQL_SERVER).createTable("\"t\"", s).contains("PRIMARY KEY"));
     }
+
+    @Test
+    public void declaresEveryLogicalTypeCapability() {
+        DialectRegistry registry = new DialectRegistry();
+        for (DatabaseType database : DatabaseType.values())
+            for (LogicalType type : LogicalType.values())
+                assertNotNull(registry.get(database).mapping(type));
+    }
 }

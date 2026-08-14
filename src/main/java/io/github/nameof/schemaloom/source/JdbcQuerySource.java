@@ -75,8 +75,8 @@ public final class JdbcQuerySource implements Source {
                     List<DataRecord> b = new ArrayList<DataRecord>();
                     while (r.next()) {
                         List<Object> v = new ArrayList<Object>();
-                        for (FieldSchema f : sc.getFields())
-                            v.add(r.getObject(f.getName()));
+                        for (int i = 0; i < sc.getFields().size(); i++)
+                            v.add(LogicalTypeCatalog.get(sc.getFields().get(i).getLogicalType()).readJdbc(r, i + 1));
                         b.add(new DataRecord(sc, v));
                         if (b.size() == fetchSize) {
                             c.accept(new RecordBatch(sc, b));

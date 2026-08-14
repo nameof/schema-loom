@@ -24,7 +24,8 @@ import java.util.Collections;
 import static org.junit.Assert.*;
 
 /**
- * 此测试用于验证LogicalType 未对实际数据做归一化处理时，在异构source target写入时，LogicalType 相同，但接受的数据对象类型不兼容，会导致写入失败
+ * 此测试用于验证LogicalType 未对实际数据做归一化处理之前，在异构source target写入时，LogicalType 相同，但接受的数据对象类型不兼容，会导致写入失败
+ * 测试给出一个excel时间字段， 但读到的是字符串的数字，直接写入mysql时间字段会产生错误。 所以需要source target对不同LogicalType编解码处理
  */
 public class XlsxToMysqlBoundaryIntegrationTest {
     @Test

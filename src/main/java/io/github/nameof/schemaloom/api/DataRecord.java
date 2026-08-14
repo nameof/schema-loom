@@ -10,7 +10,10 @@ public final class DataRecord {
         this.schema = Objects.requireNonNull(schema, "schema");
         if (values == null || values.size() != schema.getFields().size())
             throw new IllegalArgumentException("value count differs from schema");
-        this.values = Collections.unmodifiableList(new ArrayList<Object>(values));
+        List<Object> copy = new ArrayList<Object>(values);
+        for (int i = 0; i < copy.size(); i++)
+            LogicalTypeCatalog.validateValue(schema.getFields().get(i).getLogicalType(), copy.get(i));
+        this.values = Collections.unmodifiableList(copy);
     }
 
     public RecordSchema getSchema() {

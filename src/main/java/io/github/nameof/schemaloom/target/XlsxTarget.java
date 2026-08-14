@@ -47,7 +47,10 @@ public final class XlsxTarget implements Target {
     public BatchWriteResult write(RecordBatch b) {
         try {
             for (DataRecord r : b.getRecords()) {
-                writer.writeRow(r.getValues());
+                List<Object> values = new ArrayList<Object>();
+                for (int i = 0; i < schema.getFields().size(); i++)
+                    values.add(LogicalTypeCatalog.get(schema.getFields().get(i).getLogicalType()).encodeExcel(r.get(i)));
+                writer.writeRow(values);
                 rows++;
                 // rows 包含标题行，因此切换 Sheet 时要重新写入标题。
                 if (rows >= maxRowsPerSheet) {
