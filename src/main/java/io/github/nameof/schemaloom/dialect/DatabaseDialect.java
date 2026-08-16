@@ -17,12 +17,7 @@ public interface DatabaseDialect {
     String quote(QualifiedTableName table);
 
     /**
-     * 返回 SchemaLoom 字段对应的数据库 DDL 类型。
-     */
-    String type(FieldSchema field);
-
-    /**
-     * 返回一个逻辑类型的显式数据库能力映射。
+     * 返回一个逻辑类型的显式数据库能力和 DDL 类型映射。
      */
     DatabaseTypeMapping mapping(LogicalType type);
 

@@ -30,7 +30,10 @@ abstract class AbstractDialect implements DatabaseDialect {
         for (int i = 0; i < s.getFields().size(); i++) {
             if (i > 0) b.append(", ");
             FieldSchema f = s.getFields().get(i);
-            b.append(quote(f.getName())).append(' ').append(type(f));
+            DatabaseTypeMapping mapping = mapping(f.getLogicalType());
+            if (mapping == null || !mapping.isSupported())
+                throw new IllegalArgumentException("database does not support " + f.getLogicalType());
+            b.append(quote(f.getName())).append(' ').append(mapping.getDdlType(f));
             if (!f.isNullable()) b.append(" NOT NULL");
         }
         if (!s.getPrimaryKeyFields().isEmpty()) {
