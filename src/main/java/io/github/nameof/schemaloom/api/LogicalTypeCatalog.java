@@ -158,13 +158,18 @@ public final class LogicalTypeCatalog {
 
     private static Object parseExcelScalar(Class<?> type, Object raw) {
         String text = String.valueOf(raw);
-        if (type == Boolean.class) return raw instanceof Boolean ? raw : Boolean.valueOf(text);
+        if (type == Boolean.class) {
+            if (raw instanceof Boolean) return raw;
+            if ("true".equalsIgnoreCase(text)) return Boolean.TRUE;
+            if ("false".equalsIgnoreCase(text)) return Boolean.FALSE;
+            throw new IllegalArgumentException("invalid boolean value: " + text);
+        }
         if (type == Short.class) return new BigDecimal(text).stripTrailingZeros().shortValueExact();
         if (type == Integer.class) return new BigDecimal(text).stripTrailingZeros().intValueExact();
         if (type == Long.class) return new BigDecimal(text).stripTrailingZeros().longValueExact();
         if (type == BigDecimal.class) return raw instanceof BigDecimal ? raw : new BigDecimal(text);
-        if (type == Float.class) return ((Number) raw).floatValue();
-        if (type == Double.class) return ((Number) raw).doubleValue();
+        if (type == Float.class) return raw instanceof Number ? ((Number) raw).floatValue() : Float.valueOf(text);
+        if (type == Double.class) return raw instanceof Number ? ((Number) raw).doubleValue() : Double.valueOf(text);
         return text;
     }
 

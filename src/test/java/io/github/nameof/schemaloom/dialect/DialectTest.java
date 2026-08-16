@@ -27,4 +27,18 @@ public class DialectTest {
             for (LogicalType type : LogicalType.values())
                 assertNotNull(registry.get(database).mapping(type));
     }
+
+    @Test
+    public void mappingResolvesFieldSpecificDdlType() {
+        DialectRegistry registry = new DialectRegistry();
+        FieldSchema string = new FieldSchema("name", LogicalType.STRING, true, 100, null, null);
+        FieldSchema decimal = new FieldSchema("amount", LogicalType.DECIMAL, true, null, 12, 2);
+
+        assertEquals("VARCHAR(100)", registry.get(DatabaseType.MYSQL)
+                .mapping(LogicalType.STRING).getDdlType(string));
+        assertEquals("DECIMAL(12,2)", registry.get(DatabaseType.SQL_SERVER)
+                .mapping(LogicalType.DECIMAL).getDdlType(decimal));
+        assertEquals("TIMESTAMP WITH TIME ZONE", registry.get(DatabaseType.ORACLE)
+                .mapping(LogicalType.OFFSET_TIME).getDdlType(FieldSchema.of("time", LogicalType.OFFSET_TIME)));
+    }
 }

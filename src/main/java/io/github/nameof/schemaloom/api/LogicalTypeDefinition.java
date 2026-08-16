@@ -46,13 +46,20 @@ public final class LogicalTypeDefinition {
 
     public LogicalType type() { return type; }
     public Class<?> javaType() { return javaType; }
-    public Object parseText(String value) { return value == null || value.isEmpty() ? null : text.parse(value); }
-    public String formatText(Object value) { return value == null ? "" : text.format(value); }
+    public Object parseText(String value) {     return value == null || value.isEmpty() ? null : text.parse(value); }
+    public String formatText(Object value) {
+        LogicalTypeCatalog.validateValue(type, value);
+        return value == null ? "" : text.format(value);
+    }
     public Object decodeExcel(Object raw) { return raw == null ? null : excel.decode(raw); }
-    public Object encodeExcel(Object value) { return value == null ? null : excel.encode(value); }
+    public Object encodeExcel(Object value) {
+        LogicalTypeCatalog.validateValue(type, value);
+        return value == null ? null : excel.encode(value);
+    }
     public Object readJdbc(ResultSet resultSet, int index) throws SQLException { return jdbc.read(resultSet, index); }
     public void writeJdbc(PreparedStatement statement, int index, Object value) throws SQLException {
         // null 不能交给驱动自行猜测类型，否则不同数据库的行为会不一致。
+        LogicalTypeCatalog.validateValue(type, value);
         if (value == null) statement.setNull(index, jdbc.sqlType()); else jdbc.write(statement, index, value);
     }
     public int jdbcSqlType() { return jdbc.sqlType(); }
