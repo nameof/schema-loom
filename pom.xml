@@ -25,6 +25,21 @@
             <version>16.29.1</version>
         </dependency>
         <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler-mysql</artifactId>
+            <version>16.29.1</version>
+        </dependency>
+        <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler-oracle</artifactId>
+            <version>16.29.1</version>
+        </dependency>
+        <dependency>
+            <groupId>us.fatehi</groupId>
+            <artifactId>schemacrawler-sqlserver</artifactId>
+            <version>16.29.1</version>
+        </dependency>
+        <dependency>
             <groupId>cn.hutool</groupId>
             <artifactId>hutool-all</artifactId>
             <version>5.8.44</version>
@@ -43,6 +58,12 @@
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <version>2.2.224</version>
             <scope>test</scope>
         </dependency>
     </dependencies>

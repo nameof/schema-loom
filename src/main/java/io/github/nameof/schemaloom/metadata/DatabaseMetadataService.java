@@ -3,67 +3,47 @@ package io.github.nameof.schemaloom.metadata;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
 import io.github.nameof.schemaloom.source.JdbcTypes;
+import schemacrawler.schema.*;
+import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder;
+import schemacrawler.tools.utility.SchemaCrawlerUtility;
+import us.fatehi.utility.datasource.DatabaseConnectionSource;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.lang.reflect.*;
 import java.util.*;
+import java.util.regex.Pattern;
 
+/** SchemaCrawler 到 SchemaLoom 元数据 DTO 的稳定映射门面。 */
 public final class DatabaseMetadataService {
     public DatabaseInfo getDatabaseInfo(ConnectionProvider provider) {
-        try {
-            DatabaseMetaData m = provider.getConnection().getMetaData();
-            return new DatabaseInfo(m.getDatabaseProductName(), m.getDatabaseProductVersion(), m.getDriverName(), m.getDriverVersion(), m.getURL());
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot read database information", e);
-        }
+        Catalog catalog = catalog(provider);
+        return new DatabaseInfo(catalog.getDatabaseInfo().getDatabaseProductName(), catalog.getDatabaseInfo().getDatabaseProductVersion(),
+                catalog.getJdbcDriverInfo().getDriverName(), catalog.getJdbcDriverInfo().getDriverVersion(), catalog.getJdbcDriverInfo().getConnectionUrl());
     }
 
     public List<CatalogInfo> listCatalogs(ConnectionProvider provider) {
-        try {
-            List<CatalogInfo> out = new ArrayList<CatalogInfo>();
-            ResultSet r = provider.getConnection().getMetaData().getCatalogs();
-            try {
-                while (r.next()) out.add(new CatalogInfo(r.getString("TABLE_CAT")));
-            } finally {
-                r.close();
-            }
-            return out;
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot read catalogs", e);
-        }
+        Set<String> names = new LinkedHashSet<String>();
+        for (Schema schema : catalog(provider).getSchemas()) if (schema.getCatalogName() != null) names.add(schema.getCatalogName());
+        List<CatalogInfo> out = new ArrayList<CatalogInfo>();
+        for (String name : names) out.add(new CatalogInfo(name));
+        return out;
     }
 
     public List<SchemaInfo> listSchemas(ConnectionProvider provider) {
-        try {
-            List<SchemaInfo> out = new ArrayList<SchemaInfo>();
-            ResultSet r = provider.getConnection().getMetaData().getSchemas();
-            try {
-                while (r.next()) out.add(new SchemaInfo(r.getString("TABLE_CATALOG"), r.getString("TABLE_SCHEM")));
-            } finally {
-                r.close();
-            }
-            return out;
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot read schemas", e);
-        }
+        List<SchemaInfo> out = new ArrayList<SchemaInfo>();
+        for (Schema schema : catalog(provider).getSchemas()) out.add(new SchemaInfo(schema.getCatalogName(), schema.getName()));
+        return out;
     }
 
     public List<TableInfo> listTables(ConnectionProvider provider, MetadataQuery query) {
-        try {
-            List<TableInfo> out = new ArrayList<TableInfo>();
-            DatabaseMetaData m = provider.getConnection().getMetaData();
-            ResultSet r = m.getTables(query.getCatalog(), query.getSchema(), query.getTablePattern(), new String[]{"TABLE", "VIEW"});
-            try {
-                while (r.next()) {
-                    String catalog = r.getString("TABLE_CAT"), schema = r.getString("TABLE_SCHEM"), name = r.getString("TABLE_NAME");
-                    out.add(readTable(m, new QualifiedTableName(catalog, schema, name), "VIEW".equalsIgnoreCase(r.getString("TABLE_TYPE")), r.getString("REMARKS")));
-                }
-            } finally {
-                r.close();
-            }
-            return out;
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot read tables", e);
+        Pattern pattern = Pattern.compile(query.getTablePattern().replace("%", ".*").replace("_", "."), Pattern.CASE_INSENSITIVE);
+        List<TableInfo> out = new ArrayList<TableInfo>();
+        for (Table table : catalog(provider).getTables()) {
+            Schema schema = table.getSchema();
+            if (!matches(query.getCatalog(), schema.getCatalogName()) || !matches(query.getSchema(), schema.getName()) || !pattern.matcher(table.getName()).matches()) continue;
+            out.add(map(table));
         }
+        return out;
     }
 
     public TableInfo getTable(ConnectionProvider provider, QualifiedTableName name) {
@@ -72,60 +52,92 @@ public final class DatabaseMetadataService {
         throw new SchemaLoomException("table not found: " + name.getTable());
     }
 
-    private TableInfo readTable(DatabaseMetaData m, QualifiedTableName name, boolean view, String remarks) throws SQLException {
+    private Catalog catalog(ConnectionProvider provider) {
+        try {
+            schemacrawler.schemacrawler.SchemaCrawlerOptions options = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions();
+            return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
+        } catch (Exception e) {
+            throw new SchemaLoomException("cannot read database metadata with SchemaCrawler", e);
+        }
+    }
+
+    private DatabaseConnectionSource connectionSource(final ConnectionProvider provider) {
+        final Connection connection = (Connection) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{Connection.class},
+                new InvocationHandler() {
+                    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                        if ("close".equals(method.getName())) return null;
+                        try { return method.invoke(provider.getConnection(), args); }
+                        catch (InvocationTargetException e) { throw e.getCause(); }
+                    }
+                });
+        return new DatabaseConnectionSource() {
+            public Connection get() { return connection; }
+            public boolean releaseConnection(Connection connection) { return false; }
+            public void setFirstConnectionInitializer(java.util.function.Consumer<Connection> initializer) { initializer.accept(get()); }
+            public void close() { }
+        };
+    }
+
+    private boolean matches(String expected, String actual) { return expected == null || (actual != null && expected.equalsIgnoreCase(actual)); }
+
+    private TableInfo map(Table table) {
+        QualifiedTableName name = name(table);
         List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
         List<FieldSchema> fields = new ArrayList<FieldSchema>();
-        ResultSet c = m.getColumns(name.getCatalog(), name.getSchema(), name.getTable(), "%");
-        try {
-            while (c.next()) {
-                int type = c.getInt("DATA_TYPE"), size = c.getInt("COLUMN_SIZE"), scale = c.getInt("DECIMAL_DIGITS");
-                Integer nullable = c.getInt("NULLABLE");
-                ColumnInfo info = new ColumnInfo(c.getString("COLUMN_NAME"), c.getString("TYPE_NAME"), c.getString("REMARKS"), JdbcTypes.logical(type), c.getInt("ORDINAL_POSITION"), nullable != DatabaseMetaData.columnNoNulls, size, size, scale);
-                columns.add(info);
-                fields.add(new FieldSchema(info.getName(), info.getLogicalType(), info.isNullable(), info.getLength(), info.getPrecision(), info.getScale()));
-            }
-        } finally {
-            c.close();
+        for (Column column : table.getColumns()) {
+            Integer typeNumber = column.getColumnDataType().getJavaSqlType().getVendorTypeNumber();
+            ColumnInfo info = new ColumnInfo(column.getName(), column.getColumnDataType().getDatabaseSpecificTypeName(), column.getRemarks(),
+                    JdbcTypes.logical(typeNumber == null ? java.sql.Types.VARCHAR : typeNumber), column.getOrdinalPosition(), column.isNullable(),
+                    column.getSize(), column.getSize(), column.getDecimalDigits(), column.getDefaultValue(), column.isAutoIncremented(), column.isGenerated());
+            columns.add(info);
+            fields.add(new FieldSchema(info.getName(), info.getLogicalType(), info.isNullable(), info.getLength(), info.getPrecision(), info.getScale()));
         }
-        PrimaryKeyInfo pk = readPrimaryKey(m, name);
-        List<String> keyColumns = pk == null ? Collections.<String>emptyList() : pk.getColumns();
-        List<IndexInfo> indexes = readIndexes(m, name);
-        return new TableInfo(name, view, new RecordSchema(fields, keyColumns), columns, pk, indexes, remarks);
+        PrimaryKeyInfo primaryKey = primaryKey(table);
+        List<String> keyColumns = primaryKey == null ? Collections.<String>emptyList() : primaryKey.getColumns();
+        return new TableInfo(name, table.getTableType().isView(), table.getTableType().getTableType(), new RecordSchema(fields, keyColumns), columns,
+                primaryKey, indexes(table), foreignKeys(table), constraints(table), table.getRemarks());
     }
 
-    private PrimaryKeyInfo readPrimaryKey(DatabaseMetaData m, QualifiedTableName name) throws SQLException {
-        TreeMap<Short, String> columns = new TreeMap<Short, String>();
-        String pkName = null;
-        ResultSet r = m.getPrimaryKeys(name.getCatalog(), name.getSchema(), name.getTable());
-        try {
-            while (r.next()) {
-                if (pkName == null) pkName = r.getString("PK_NAME");
-                columns.put(r.getShort("KEY_SEQ"), r.getString("COLUMN_NAME"));
-            }
-        } finally {
-            r.close();
-        }
-        return columns.isEmpty() ? null : new PrimaryKeyInfo(pkName, new ArrayList<String>(columns.values()));
+    private QualifiedTableName name(Table table) {
+        Schema schema = table.getSchema();
+        return new QualifiedTableName(schema.getCatalogName(), schema.getName(), table.getName());
     }
 
-    private List<IndexInfo> readIndexes(DatabaseMetaData m, QualifiedTableName name) throws SQLException {
-        Map<String, List<String>> columns = new LinkedHashMap<String, List<String>>();
-        Map<String, Boolean> unique = new HashMap<String, Boolean>();
-        ResultSet r = m.getIndexInfo(name.getCatalog(), name.getSchema(), name.getTable(), false, false);
-        try {
-            while (r.next()) {
-                String index = r.getString("INDEX_NAME"), column = r.getString("COLUMN_NAME");
-                if (index == null || column == null) continue;
-                if (!columns.containsKey(index)) columns.put(index, new ArrayList<String>());
-                columns.get(index).add(column);
-                unique.put(index, !r.getBoolean("NON_UNIQUE"));
-            }
-        } finally {
-            r.close();
-        }
+    private PrimaryKeyInfo primaryKey(Table table) {
+        PrimaryKey key = table.getPrimaryKey();
+        if (key == null) return null;
+        List<String> columns = new ArrayList<String>();
+        for (TableConstraintColumn column : key.getConstrainedColumns()) columns.add(column.getName());
+        return new PrimaryKeyInfo(key.getName(), columns);
+    }
+
+    private List<IndexInfo> indexes(Table table) {
         List<IndexInfo> out = new ArrayList<IndexInfo>();
-        for (Map.Entry<String, List<String>> e : columns.entrySet())
-            out.add(new IndexInfo(e.getKey(), Boolean.TRUE.equals(unique.get(e.getKey())), e.getValue()));
+        for (Index index : table.getIndexes()) {
+            List<String> columns = new ArrayList<String>();
+            for (IndexColumn column : index.getColumns()) columns.add(column.getName());
+            out.add(new IndexInfo(index.getName(), index.getIndexType().toString(), index.isUnique(), columns));
+        }
+        return out;
+    }
+
+    private List<ForeignKeyInfo> foreignKeys(Table table) {
+        List<ForeignKeyInfo> out = new ArrayList<ForeignKeyInfo>();
+        for (ForeignKey key : table.getImportedForeignKeys()) {
+            List<String> columns = new ArrayList<String>(), referenced = new ArrayList<String>();
+            for (ColumnReference reference : key.getColumnReferences()) { columns.add(reference.getForeignKeyColumn().getName()); referenced.add(reference.getPrimaryKeyColumn().getName()); }
+            out.add(new ForeignKeyInfo(key.getName(), name(key.getPrimaryKeyTable()), columns, referenced, key.getUpdateRule().toString(), key.getDeleteRule().toString()));
+        }
+        return out;
+    }
+
+    private List<ConstraintInfo> constraints(Table table) {
+        List<ConstraintInfo> out = new ArrayList<ConstraintInfo>();
+        for (TableConstraint constraint : table.getTableConstraints()) {
+            List<String> columns = new ArrayList<String>();
+            for (TableConstraintColumn column : constraint.getConstrainedColumns()) columns.add(column.getName());
+            out.add(new ConstraintInfo(constraint.getName(), constraint.getType().toString(), columns));
+        }
         return out;
     }
 }

@@ -3,8 +3,7 @@ package io.github.nameof.schemaloom.target;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
-import io.github.nameof.schemaloom.source.JdbcTypes;
-import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import io.github.nameof.schemaloom.metadata.*;
 
 import java.sql.*;
 import java.util.*;
@@ -35,19 +34,10 @@ public final class JdbcTableTarget implements Target {
         validateCapabilities(s);
         Connection c = provider.getConnection();
         try {
-            boolean exists = false;
-            ResultSet r = c.getMetaData().getTables(table.getCatalog(), table.getSchema(), table.getTable(), null);
-            try {
-                while (r.next()) {
-                    String name = r.getString("TABLE_NAME");
-                    if (name == null || table.getTable().equals(name)) {
-                        exists = true;
-                        break;
-                    }
-                }
-            } finally {
-                r.close();
-            }
+            DatabaseMetadataService metadata = new DatabaseMetadataService();
+            List<TableInfo> tables = metadata.listTables(provider, new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
+            TableInfo existingTable = tables.isEmpty() ? null : tables.get(0);
+            boolean exists = existingTable != null;
             String q = dialect.quote(table);
             if (mode == TargetMode.REPLACE && exists) {
                 c.createStatement().executeUpdate(dialect.dropTable(q));
@@ -56,7 +46,7 @@ public final class JdbcTableTarget implements Target {
             if (!exists) {
                 c.createStatement().executeUpdate(dialect.createTable(q, s));
             } else {
-                validateAppend(c.getMetaData(), s, table);
+                validateAppend(existingTable, s);
             }
             prepared = true;
         } catch (SQLException e) {
@@ -119,22 +109,12 @@ public final class JdbcTableTarget implements Target {
      * 校验已存在的目标表是否可以安全接收源 Schema。
      * APPEND 不修改目标表，因此所有不兼容情况都必须在这里提前失败。
      */
-    private void validateAppend(DatabaseMetaData metadata, RecordSchema source, QualifiedTableName tableName) throws SQLException {
+    private void validateAppend(TableInfo tableInfo, RecordSchema source) {
         Map<String, ExistingColumn> target = new LinkedHashMap<String, ExistingColumn>();
-        ResultSet r = metadata.getColumns(tableName.getCatalog(), tableName.getSchema(), tableName.getTable(), "%");
-        try {
-            while (r.next()) {
-                String name = r.getString("COLUMN_NAME");
-                // 保留未匹配的目标字段，后面统一检查它们是否为必填额外字段。
-                target.put(name.toLowerCase(Locale.ENGLISH), new ExistingColumn(
-                        name, JdbcTypes.logical(r.getInt("DATA_TYPE")), r.getInt("COLUMN_SIZE"),
-                        r.getInt("DECIMAL_DIGITS"), "YES".equalsIgnoreCase(r.getString("IS_NULLABLE")),
-                        r.getString("COLUMN_DEF"), "YES".equalsIgnoreCase(r.getString("IS_AUTOINCREMENT")),
-                        "YES".equalsIgnoreCase(r.getString("IS_GENERATEDCOLUMN"))));
-            }
-        } finally {
-            r.close();
-        }
+        for (ColumnInfo column : tableInfo.getColumns()) target.put(column.getName().toLowerCase(Locale.ENGLISH), new ExistingColumn(
+                column.getName(), column.getLogicalType(), column.getLength() == null ? 0 : column.getLength(),
+                column.getScale() == null ? 0 : column.getScale(), column.isNullable(), column.getDefaultValue(),
+                column.isAutoIncremented(), column.isGenerated()));
         for (FieldSchema field : source.getFields()) {
             // 移除已匹配字段后，Map 中只剩源 Schema 未提供的目标字段。
             ExistingColumn existing = target.remove(field.getName().toLowerCase(Locale.ENGLISH));
