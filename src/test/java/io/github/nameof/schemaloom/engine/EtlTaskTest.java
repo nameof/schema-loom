@@ -184,7 +184,7 @@ public class EtlTaskTest {
         EtlResult result = EtlTask.builder()
                 .source(new JdbcTableSource(sourceConfig, "jsh_account"))
                 .target(new JdbcTableTarget(targetConfig, "a"))
-                .targetMode(TargetMode.REPLACE)
+                .targetMode(TargetMode.APPEND)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);
         assertTrue(result.getWritten() > 0);

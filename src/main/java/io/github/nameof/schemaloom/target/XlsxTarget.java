@@ -2,6 +2,7 @@ package io.github.nameof.schemaloom.target;
 
 import cn.hutool.poi.excel.*;
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.codec.ExcelValueCodec;
 
 import java.io.*;
 import java.nio.file.*;
@@ -49,7 +50,7 @@ public final class XlsxTarget implements Target {
             for (DataRecord r : b.getRecords()) {
                 List<Object> values = new ArrayList<Object>();
                 for (int i = 0; i < schema.getFields().size(); i++)
-                    values.add(LogicalTypeCatalog.get(schema.getFields().get(i).getLogicalType()).encodeExcel(r.get(i)));
+                    values.add(ExcelValueCodec.encode(schema.getFields().get(i), r.get(i)));
                 writer.writeRow(values);
                 rows++;
                 // rows 包含标题行，因此切换 Sheet 时要重新写入标题。

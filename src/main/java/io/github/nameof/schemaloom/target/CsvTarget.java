@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.target;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.codec.TextValueCodec;
 
 import java.io.*;
 import java.nio.charset.*;
@@ -73,7 +74,7 @@ public final class CsvTarget implements Target {
                 for (int i = 0; i < schema.getFields().size(); i++) {
                     if (i > 0) writer.write(delimiter);
                     Object v = r.get(i);
-                    writer.write(escape(LogicalTypeCatalog.get(batch.getSchema().getFields().get(i).getLogicalType()).formatText(v)));
+                    writer.write(escape(TextValueCodec.format(batch.getSchema().getFields().get(i), v)));
                 }
                 writer.write("\n");
             }

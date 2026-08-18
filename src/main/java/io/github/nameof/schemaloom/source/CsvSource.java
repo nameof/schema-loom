@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.codec.TextValueCodec;
 
 import java.io.*;
 import java.nio.charset.*;
@@ -104,7 +105,7 @@ public final class CsvSource implements Source {
                     List<String> row = parse(line);
                     List<Object> values = new ArrayList<Object>();
                     for (int i = 0; i < s.getFields().size(); i++)
-                        values.add(i < row.size() ? LogicalTypeCatalog.get(s.getFields().get(i).getLogicalType()).parseText(row.get(i)) : null);
+                        values.add(i < row.size() ? TextValueCodec.parse(s.getFields().get(i), row.get(i)) : null);
                     batch.add(new DataRecord(s, values));
                     // 达到批大小后立即交给任务引擎处理。
                     if (batch.size() == batchSize) {

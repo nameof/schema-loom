@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.codec.JdbcValueCodec;
 import io.github.nameof.schemaloom.driver.*;
 
 import java.sql.*;
@@ -76,7 +77,7 @@ public final class JdbcQuerySource implements Source {
                     while (r.next()) {
                         List<Object> v = new ArrayList<Object>();
                         for (int i = 0; i < sc.getFields().size(); i++)
-                            v.add(LogicalTypeCatalog.get(sc.getFields().get(i).getLogicalType()).readJdbc(r, i + 1));
+                            v.add(JdbcValueCodec.read(r, i + 1, sc.getFields().get(i)));
                         b.add(new DataRecord(sc, v));
                         if (b.size() == fetchSize) {
                             c.accept(new RecordBatch(sc, b));

@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.target;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.codec.JdbcValueCodec;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.metadata.*;
@@ -98,7 +99,7 @@ public final class JdbcTableTarget implements Target {
     }
 
     private void setValue(PreparedStatement ps, int index, FieldSchema field, Object value) throws SQLException {
-        LogicalTypeCatalog.get(field.getLogicalType()).writeJdbc(ps, index, value);
+        JdbcValueCodec.write(ps, index, field, value);
     }
 
     public void close() {
