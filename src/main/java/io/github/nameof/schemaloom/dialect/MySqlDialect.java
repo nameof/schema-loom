@@ -1,6 +1,10 @@
 package io.github.nameof.schemaloom.dialect;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+
+import java.util.*;
 
 final class MySqlDialect extends AbstractDialect {
     private final java.util.Map<LogicalType, DatabaseTypeMapping> mappings = mappings();
@@ -11,6 +15,14 @@ final class MySqlDialect extends AbstractDialect {
 
     @Override
     public DatabaseTypeMapping mapping(LogicalType type) { return mappings.get(type); }
+
+    @Override
+    public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
+        String schema = view.getCatalog() == null ? source.getCatalog() : view.getCatalog();
+        if (schema == null) schema = source.getDatabase();
+        return new ViewDefinitionQuery("SELECT VIEW_DEFINITION FROM INFORMATION_SCHEMA.VIEWS "
+                + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?", Arrays.<Object>asList(schema, view.getTable()));
+    }
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
         java.util.EnumMap<LogicalType, DatabaseTypeMapping> mappings = new java.util.EnumMap<LogicalType, DatabaseTypeMapping>(LogicalType.class);

@@ -42,6 +42,12 @@ public class JdbcTableTargetContractTest {
         target.close();
     }
 
+    @Test(expected = SchemaLoomException.class)
+    public void rejectsExistingViewAsTarget() throws Exception {
+        JdbcTableTarget target = target("view_target", "CREATE VIEW orders AS SELECT 1 AS id");
+        target.prepare(schema(new FieldSchema("id", LogicalType.INT32, false, null, null, null)), TargetMode.APPEND);
+    }
+
     private JdbcTableTarget target(String database, String ddl) throws SQLException {
         final Connection connection = DriverManager.getConnection("jdbc:h2:mem:" + database + ";DB_CLOSE_DELAY=-1");
         Statement statement = connection.createStatement();

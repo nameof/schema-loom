@@ -41,4 +41,11 @@ public class DialectTest {
         assertEquals("TIMESTAMP WITH TIME ZONE", registry.get(DatabaseType.ORACLE)
                 .mapping(LogicalType.OFFSET_TIME).getDdlType(FieldSchema.of("time", LogicalType.OFFSET_TIME)));
     }
+
+    @Test
+    public void createsNativeViewDdl() {
+        DatabaseDialect dialect = new DialectRegistry().get(DatabaseType.MYSQL);
+        assertEquals("CREATE VIEW `v` AS SELECT 1", dialect.createView("`v`", "SELECT 1"));
+        assertEquals("DROP VIEW `v`", dialect.dropView("`v`"));
+    }
 }

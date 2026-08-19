@@ -1,6 +1,10 @@
 package io.github.nameof.schemaloom.dialect;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+
+import java.util.*;
 
 final class SqlServerDialect extends AbstractDialect {
     private final java.util.Map<LogicalType, DatabaseTypeMapping> mappings = mappings();
@@ -11,6 +15,12 @@ final class SqlServerDialect extends AbstractDialect {
 
     @Override
     public DatabaseTypeMapping mapping(LogicalType type) { return mappings.get(type); }
+
+    @Override
+    public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
+        String name = view.getSchema() == null ? view.getTable() : view.getSchema() + "." + view.getTable();
+        return new ViewDefinitionQuery("SELECT OBJECT_DEFINITION(OBJECT_ID(?))", Collections.<Object>singletonList(name));
+    }
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
         java.util.EnumMap<LogicalType, DatabaseTypeMapping> mappings = new java.util.EnumMap<LogicalType, DatabaseTypeMapping>(LogicalType.class);

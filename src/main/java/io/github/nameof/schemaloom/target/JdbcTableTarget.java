@@ -9,6 +9,17 @@ import io.github.nameof.schemaloom.metadata.*;
 import java.sql.*;
 import java.util.*;
 
+/**
+ * JDBC 普通表 Target。
+ *
+ * <p>目标表不存在时，{@link #prepare(RecordSchema, TargetMode)} 会依据 Source
+ * Schema 自动生成普通表；目标已存在时，{@code APPEND} 只在结构兼容时追加，
+ * {@code REPLACE} 会删除并重建目标表。目标表名始终由调用方指定，不能从
+ * </p>
+ *
+ * <p>VIEW：只能作为数据只读来源，不能作为 Target 的写入对象。若Target对象已经是 VIEW，准备阶段会失败；
+ * 需要在目标库创建 VIEW 定义时，应使用独立的 {@code JdbcViewMigrationTask}，而不是把 VIEW 当普通表写入数据。</p>
+ */
 public final class JdbcTableTarget implements Target {
     private final ConnectionProvider provider;
     private final QualifiedTableName table;
@@ -39,6 +50,8 @@ public final class JdbcTableTarget implements Target {
             List<TableInfo> tables = metadata.listTables(provider, new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
             TableInfo existingTable = tables.isEmpty() ? null : tables.get(0);
             boolean exists = existingTable != null;
+            if (exists && existingTable.isView())
+                throw new SchemaLoomException("JDBC table target cannot write to a view: " + table.getTable());
             String q = dialect.quote(table);
             if (mode == TargetMode.REPLACE && exists) {
                 c.createStatement().executeUpdate(dialect.dropTable(q));

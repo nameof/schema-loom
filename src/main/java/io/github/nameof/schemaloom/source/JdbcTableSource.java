@@ -9,6 +9,15 @@ import java.sql.*;
 import java.util.*;
 import java.util.function.Supplier;
 
+/**
+ * JDBC 表或视图的数据 Source。需要筛选、联表或聚合时，应使用参数化的 {@link JdbcQuerySource}。
+ *
+ * <p>视图支持：VIEW 在这里是只读的数据来源，它的输出列 Schema 可以传给
+ * {@code JdbcTableTarget}，但不会复制 VIEW 背后的基础表结构、索引或约束。（支持跨数据库类型VIEW etl；因为迁移的是 VIEW 查询结果，不会复制或改写 VIEW SQL。）
+ *
+ * <p>当它作为 VIEW Source 使用时，目标行为由 {@code JdbcTableTarget} 决定：
+ * 目标不存在则按 VIEW 输出 Schema 创建普通表，目标已存在则按目标模式校验并写入。</p>
+ */
 public final class JdbcTableSource implements Source {
     private final DatabaseConnectionInfo info;
     private final QualifiedTableName table;
@@ -53,7 +62,10 @@ public final class JdbcTableSource implements Source {
         return () -> JdbcConnectionFactory.open(info, loader);
     }
 
-    /** 读取表元数据并构造带正确标识符引用的 SELECT 查询委托。 */
+    /**
+     * 读取表或视图元数据，并构造带正确标识符引用的 SELECT 查询委托。
+     * 视图只作为只读数据源，其输出 Schema 可供 JdbcTableTarget 创建普通目标表。
+     */
     private JdbcTableSource(DatabaseConnectionInfo info, String tableName, int fetchSize,
                             Supplier<ConnectionProvider> providerSupplier) {
         if (info == null) throw new IllegalArgumentException("database connection info is required");

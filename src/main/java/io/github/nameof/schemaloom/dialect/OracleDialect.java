@@ -1,6 +1,10 @@
 package io.github.nameof.schemaloom.dialect;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+
+import java.util.*;
 
 final class OracleDialect extends AbstractDialect {
     private final java.util.Map<LogicalType, DatabaseTypeMapping> mappings = mappings();
@@ -11,6 +15,14 @@ final class OracleDialect extends AbstractDialect {
 
     @Override
     public DatabaseTypeMapping mapping(LogicalType type) { return mappings.get(type); }
+
+    @Override
+    public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
+        String owner = view.getSchema() == null ? source.getSchema() : view.getSchema();
+        if (owner == null) throw new IllegalArgumentException("Oracle view migration requires a source schema");
+        return new ViewDefinitionQuery("SELECT TEXT FROM ALL_VIEWS WHERE OWNER = ? AND VIEW_NAME = ?",
+                Arrays.<Object>asList(owner.toUpperCase(Locale.ENGLISH), view.getTable().toUpperCase(Locale.ENGLISH)));
+    }
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
         java.util.EnumMap<LogicalType, DatabaseTypeMapping> mappings = new java.util.EnumMap<LogicalType, DatabaseTypeMapping>(LogicalType.class);

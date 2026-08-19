@@ -59,6 +59,17 @@ abstract class AbstractDialect implements DatabaseDialect {
     }
 
     @Override
+    public String createView(String view, String definition) {
+        if (definition == null || definition.trim().isEmpty()) throw new IllegalArgumentException("view definition is required");
+        return "CREATE VIEW " + view + " AS " + definition;
+    }
+
+    @Override
+    public String dropView(String view) {
+        return "DROP VIEW " + view;
+    }
+
+    @Override
     public String insert(String table, RecordSchema s) {
         StringBuilder b = new StringBuilder("INSERT INTO ").append(table).append(" (");
         for (int i = 0; i < s.getFields().size(); i++) {

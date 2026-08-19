@@ -182,8 +182,8 @@ public class EtlTaskTest {
         DatabaseConnectionInfo targetConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         EtlResult result = EtlTask.builder()
-                .source(new JdbcTableSource(sourceConfig, "jsh_account"))
-                .target(new JdbcTableTarget(targetConfig, "a"))
+                .source(new JdbcTableSource(sourceConfig, "testview"))
+                .target(new JdbcTableTarget(targetConfig, "b"))
                 .targetMode(TargetMode.APPEND)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);

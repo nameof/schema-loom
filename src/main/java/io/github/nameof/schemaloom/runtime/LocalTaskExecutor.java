@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.SchemaLoomException;
 import io.github.nameof.schemaloom.engine.EtlTask;
 
 import java.util.concurrent.*;
+import io.github.nameof.schemaloom.api.EtlResult;
 
 public final class LocalTaskExecutor implements AutoCloseable {
     private final ThreadPoolExecutor executor;
@@ -18,6 +19,15 @@ public final class LocalTaskExecutor implements AutoCloseable {
     }
 
     public Future<io.github.nameof.schemaloom.api.EtlResult> submit(EtlTask task) {
+        try {
+            return executor.submit(task);
+        } catch (RejectedExecutionException e) {
+            throw new SchemaLoomException("task queue is full", e);
+        }
+    }
+
+    public Future<EtlResult> submit(Callable<EtlResult> task) {
+        if (task == null) throw new IllegalArgumentException("task is required");
         try {
             return executor.submit(task);
         } catch (RejectedExecutionException e) {
