@@ -3,6 +3,7 @@ package io.github.nameof.schemaloom.source;
 import cn.hutool.poi.excel.ExcelUtil;
 import cn.hutool.poi.excel.sax.handler.RowHandler;
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.codec.ExcelValueCodec;
 
 import java.io.*;
 import java.nio.file.*;
@@ -15,13 +16,18 @@ public final class XlsxSource implements Source {
     private final String sheet;
     private final int batchSize;
     private final RecordSchema explicit;
+    private final boolean skipMalformed;
     private RecordSchema inferred;
 
     public XlsxSource(Path path, String sheet, RecordSchema explicit) {
-        this(path, sheet, explicit, DEFAULT_BATCH_SIZE);
+        this(path, sheet, explicit, DEFAULT_BATCH_SIZE, false);
     }
 
     public XlsxSource(Path path, String sheet, RecordSchema explicit, int batchSize) {
+        this(path, sheet, explicit, batchSize, false);
+    }
+
+    public XlsxSource(Path path, String sheet, RecordSchema explicit, int batchSize, boolean skipMalformed) {
         if (!path.toString().toLowerCase(Locale.ENGLISH).endsWith(".xlsx"))
             throw new IllegalArgumentException("only .xlsx is supported");
         this.path = path;
@@ -29,13 +35,14 @@ public final class XlsxSource implements Source {
         this.explicit = explicit;
         if (batchSize <= 0) throw new IllegalArgumentException("batchSize must be positive");
         this.batchSize = batchSize;
+        this.skipMalformed = skipMalformed;
     }
 
     /** 返回显式 Schema；否则扫描指定 Sheet 的标题和最多 1000 行样本。 */
     public RecordSchema schema() {
         if (explicit != null) return explicit;
         if (inferred == null) {
-            final List<List<Object>> rows = new ArrayList<List<Object>>();
+            final List<List<Object>> rows = new ArrayList<>();
             ExcelUtil.readBySax(path.toFile(), sheet, new Handler() {
                 public void handle(int s, long r, List<Object> row) {
                     if (rows.size() < 1001) rows.add(row);
@@ -47,9 +54,12 @@ public final class XlsxSource implements Source {
         return inferred;
     }
 
-    /** 使用 Hutool SAX 流式读取指定 Sheet，并按批次回调数据。 */
+    /** 使用 Hutool SAX 流式读取指定 Sheet，并按批次回调数据。
+     *  当 skipMalformed 为 true 时，解码失败或列数严重不匹配的行会被静默跳过，
+     *  适用于 Excel 中夹杂章节标题等非数据行的场景。 */
     public void read(final BatchConsumer c) {
         final RecordSchema s = schema();
+        final int fieldCount = s.getFields().size();
         ExcelUtil.readBySax(path.toFile(), sheet, new Handler() {
             private boolean head = true;
             private List<DataRecord> b = new ArrayList<DataRecord>();
@@ -60,12 +70,18 @@ public final class XlsxSource implements Source {
                     head = false;
                     return;
                 }
-                List<Object> v = new ArrayList<Object>();
-                for (int i = 0; i < s.getFields().size(); i++) {
-                    v.add(i < values.size() ? LogicalTypeCatalog.get(s.getFields().get(i).getLogicalType()).decodeExcel(values.get(i)) : null);
+                // 列数不足表头一半的行视为章节标题或空行，直接跳过。
+                if (values.size() < fieldCount / 2) return;
+                try {
+                    List<Object> v = new ArrayList<Object>();
+                    for (int i = 0; i < fieldCount; i++) {
+                        v.add(i < values.size() ? ExcelValueCodec.decode(s.getFields().get(i), values.get(i)) : null);
+                    }
+                    b.add(new DataRecord(s, v));
+                } catch (RuntimeException e) {
+                    if (!skipMalformed) throw new SchemaLoomException("row " + row + " decode failed", e);
+                    // skipMalformed 模式：跳过无法解码的行（如章节标题行）。
                 }
-                b.add(new DataRecord(s, v));
-                // 达到批大小后立即释放当前批次，控制内存占用。
                 if (b.size() == batchSize) {
                     c.accept(new RecordBatch(s, b));
                     b = new ArrayList<DataRecord>();

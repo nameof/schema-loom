@@ -36,9 +36,9 @@ final class JdbcViewMigrator {
 
     /**
      * Creates {@code targetView} from {@code sourceView}; an existing target object is never replaced.
-     * Returns false when the caller selected SKIP, otherwise true after creation.
+     * Failures are reported through {@link SchemaLoomException}.
      */
-    boolean migrate(String sourceView, String targetView) {
+    void migrate(String sourceView, String targetView) {
         if (source.getDatabaseType() != target.getDatabaseType())
             throw new SchemaLoomException("native view migration requires identical source and target database types");
         if (!sameNativeNamespace())
@@ -65,7 +65,6 @@ final class JdbcViewMigrator {
             try (Statement statement = targetProvider.getConnection().createStatement()) {
                 statement.executeUpdate(dialect.createView(dialect.quote(targetName), definition));
             }
-            return true;
         } catch (SQLException e) {
             throw new SchemaLoomException("cannot migrate JDBC view", e);
         } finally {
