@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.transform;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.metadata.*;
 
 import java.util.*;
 
@@ -38,6 +39,24 @@ public final class FieldMapping {
         for (String k : source.getPrimaryKeyFields())
             for (FieldMapping m : ms) if (m.source.equals(k)) keys.add(m.target);
         return new RecordSchema(fs, keys);
+    }
+
+    /** Maps source table metadata together with its schema, preserving column defaults. */
+    public static TableInfo mapTableInfo(TableInfo source, RecordSchema target, List<FieldMapping> mappings) {
+        List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source.getSchema()) : mappings;
+        Map<String, ColumnInfo> columns = new HashMap<String, ColumnInfo>();
+        for (ColumnInfo column : source.getColumns()) columns.put(column.getName().toLowerCase(Locale.ENGLISH), column);
+        List<ColumnInfo> mapped = new ArrayList<ColumnInfo>();
+        for (FieldMapping mapping : ms) {
+            ColumnInfo column = columns.get(mapping.source.toLowerCase(Locale.ENGLISH));
+            if (column == null) continue;
+            mapped.add(new ColumnInfo(mapping.target, column.getTypeName(), column.getRemarks(), column.getLogicalType(),
+                    column.getOrdinal(), column.isNullable(), column.getLength(), column.getPrecision(), column.getScale(),
+                    column.getDefaultValue(), column.isAutoIncremented(), column.isGenerated()));
+        }
+        return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, null,
+                Collections.<IndexInfo>emptyList(), Collections.<ForeignKeyInfo>emptyList(),
+                Collections.<ConstraintInfo>emptyList(), source.getRemarks());
     }
 
     /** 按映射顺序提取记录值，构造目标 Schema 对应的新记录。 */

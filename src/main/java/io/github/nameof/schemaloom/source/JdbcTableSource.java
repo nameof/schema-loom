@@ -26,6 +26,7 @@ public final class JdbcTableSource implements Source {
     private final DatabaseDialect dialect;
     private volatile JdbcQuerySource delegate;
     private volatile RecordSchema tableSchema;
+    private volatile TableInfo tableInfo;
     private volatile ConnectionProvider provider;
     private volatile boolean closed;
 
@@ -93,15 +94,27 @@ public final class JdbcTableSource implements Source {
     }
 
     private synchronized RecordSchema ensureSchema() {
-        if (tableSchema == null) {
-            TableInfo tableInfo = new DatabaseMetadataService().getTable(ensureProvider(), table);
-            tableSchema = tableInfo.getSchema();
-        }
+        if (tableSchema == null) tableSchema = ensureTableInfo().getSchema();
         return tableSchema;
+    }
+
+    /** 返回源表完整元数据，供 JDBC 表结构迁移使用。 */
+    public synchronized TableInfo tableInfo() {
+        return ensureTableInfo();
+    }
+
+    private synchronized TableInfo ensureTableInfo() {
+        if (tableInfo == null) tableInfo = new DatabaseMetadataService().getTable(ensureProvider(), table);
+        return tableInfo;
     }
 
     public RecordSchema schema() {
         return ensureSchema();
+    }
+
+    @Override
+    public SchemaDescriptor describeSchema() {
+        return new SchemaDescriptor(ensureSchema(), tableInfo());
     }
 
     public long count() {

@@ -12,7 +12,7 @@ import java.util.*;
 /**
  * JDBC 普通表 Target。
  *
- * <p>目标表不存在时，{@link #prepare(RecordSchema, TargetMode)} 会依据 Source
+ * <p>目标表不存在时，{@link #prepare} 会依据 Source
  * Schema 自动生成普通表；目标已存在时，{@code APPEND} 只在结构兼容时追加，
  * {@code REPLACE} 会删除并重建目标表。目标表名始终由调用方指定，不能从
  * </p>
@@ -42,8 +42,16 @@ public final class JdbcTableTarget implements Target {
     }
 
     public void prepare(RecordSchema s, TargetMode mode) {
-        schema = s;
-        validateCapabilities(s);
+        prepare(new SchemaDescriptor(s), mode);
+    }
+
+    @Override
+    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+        if (descriptor == null) throw new IllegalArgumentException("schema descriptor is required");
+        schema = descriptor.getSchema();
+        TableInfo tableMetadata = descriptor.getTableInfo() == null
+                ? new TableInfo(table, false, schema) : descriptor.getTableInfo();
+        validateCapabilities(schema);
         Connection c = provider.getConnection();
         try {
             DatabaseMetadataService metadata = new DatabaseMetadataService();
@@ -58,9 +66,9 @@ public final class JdbcTableTarget implements Target {
                 exists = false;
             }
             if (!exists) {
-                c.createStatement().executeUpdate(dialect.createTable(q, s));
+                c.createStatement().executeUpdate(dialect.createTableSql(q, tableMetadata));
             } else {
-                validateAppend(existingTable, s);
+                validateAppend(existingTable, schema);
             }
             prepared = true;
         } catch (SQLException e) {

@@ -3,6 +3,7 @@ package io.github.nameof.schemaloom.dialect;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import io.github.nameof.schemaloom.metadata.ColumnInfo;
 
 import java.util.*;
 
@@ -15,6 +16,16 @@ final class OracleDialect extends AbstractDialect {
 
     @Override
     public DatabaseTypeMapping mapping(LogicalType type) { return mappings.get(type); }
+
+    @Override
+    protected String defaultValue(ColumnInfo column) {
+        String value = column.getDefaultValue();
+        if (value != null && value.trim().equalsIgnoreCase("SYSDATE")) return "CURRENT_TIMESTAMP";
+        if (value != null && value.trim().equalsIgnoreCase("SYSTIMESTAMP")) return "CURRENT_TIMESTAMP";
+        if (value != null && value.trim().equalsIgnoreCase("TRUE")) return "1";
+        if (value != null && value.trim().equalsIgnoreCase("FALSE")) return "0";
+        return super.defaultValue(column);
+    }
 
     @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {

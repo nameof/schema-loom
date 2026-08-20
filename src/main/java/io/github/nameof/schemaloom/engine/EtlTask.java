@@ -1,6 +1,7 @@
 package io.github.nameof.schemaloom.engine;
 
 import io.github.nameof.schemaloom.api.*;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.transform.FieldMapping;
 
 import java.time.Instant;
@@ -43,8 +44,12 @@ public final class EtlTask implements Callable<EtlResult> {
             if (total < 0) total = -1L;
             notifyStarted(new EtlProgress(total, 0, 0, 0, 0, 0, 0, start));
 
-            RecordSchema targetSchema = FieldMapping.mapSchema(source.schema(), mappings);
-            target.prepare(targetSchema, targetMode);
+            SchemaDescriptor sourceDescriptor = source.describeSchema();
+            RecordSchema targetSchema = FieldMapping.mapSchema(sourceDescriptor.getSchema(), mappings);
+            TableInfo mappedTable = sourceDescriptor.getTableInfo() == null ? null
+                    : FieldMapping.mapTableInfo(sourceDescriptor.getTableInfo(), targetSchema, mappings);
+            SchemaDescriptor targetDescriptor = new SchemaDescriptor(targetSchema, mappedTable);
+            target.prepare(targetDescriptor, targetMode);
             final RecordSchema schema = targetSchema;
             final long observedTotal = total;
             source.read(batch -> {

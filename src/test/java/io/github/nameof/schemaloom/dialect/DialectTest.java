@@ -3,6 +3,8 @@ package io.github.nameof.schemaloom.dialect;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseType;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import io.github.nameof.schemaloom.metadata.ColumnInfo;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 
 import java.util.*;
 
@@ -17,7 +19,8 @@ public class DialectTest {
         assertEquals("`we``ird`", new DialectRegistry().get(DatabaseType.MYSQL).quote("we`ird"));
         assertEquals("`shop`.`sales`.`orders`", new DialectRegistry().get(DatabaseType.MYSQL)
                 .quote(new QualifiedTableName("shop", "sales", "orders")));
-        assertTrue(new DialectRegistry().get(DatabaseType.SQL_SERVER).createTable("\"t\"", s).contains("PRIMARY KEY"));
+        TableInfo table = new TableInfo(new QualifiedTableName(null, null, "t"), false, s);
+        assertTrue(new DialectRegistry().get(DatabaseType.SQL_SERVER).createTableSql("\"t\"", table).contains("PRIMARY KEY"));
     }
 
     @Test
@@ -47,5 +50,46 @@ public class DialectTest {
         DatabaseDialect dialect = new DialectRegistry().get(DatabaseType.MYSQL);
         assertEquals("CREATE VIEW `v` AS SELECT 1", dialect.createView("`v`", "SELECT 1"));
         assertEquals("DROP VIEW `v`", dialect.dropView("`v`"));
+    }
+
+    @Test
+    public void migratesSafeDefaultsAndDialectAliases() {
+        FieldSchema created = new FieldSchema("created", LogicalType.TIMESTAMP, true, null, null, null);
+        FieldSchema active = new FieldSchema("active", LogicalType.BOOLEAN, false, null, null, null);
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
+                new RecordSchema(Arrays.asList(created, active)), Arrays.asList(
+                new ColumnInfo("created", "TIMESTAMP", null, LogicalType.TIMESTAMP, 1, true, null, null, null, "SYSDATE", false, false),
+                new ColumnInfo("active", "BOOLEAN", null, LogicalType.BOOLEAN, 2, false, null, null, null, "TRUE", false, false)),
+                null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
+                Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
+                Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
+        String oracle = new DialectRegistry().get(DatabaseType.ORACLE).createTableSql("\"t\"", source);
+        assertTrue(oracle.contains("DEFAULT CURRENT_TIMESTAMP"));
+        assertTrue(oracle.contains("DEFAULT 1"));
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsUnsafeDefaultExpression() {
+        ColumnInfo column = new ColumnInfo("x", "INT", null, LogicalType.INT32, 1, true, null, null, null,
+                "other_column", false, false);
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
+                new RecordSchema(Collections.singletonList(FieldSchema.of("x", LogicalType.INT32))),
+                Collections.singletonList(column), null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
+                Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
+                Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
+        new DialectRegistry().get(DatabaseType.MYSQL).createTableSql("`t`", source);
+    }
+
+    @Test
+    public void quotesUnquotedStringDefaultFromJdbcMetadata() {
+        ColumnInfo column = new ColumnInfo("remark", "VARCHAR", null, LogicalType.STRING, 1, true, 32, null, null,
+                "remarksssss", false, false);
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
+                new RecordSchema(Collections.singletonList(new FieldSchema("remark", LogicalType.STRING, true, 32, null, null))),
+                Collections.singletonList(column), null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
+                Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
+                Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
+        assertTrue(new DialectRegistry().get(DatabaseType.MYSQL).createTableSql("`t`", source)
+                .contains("DEFAULT 'remarksssss'"));
     }
 }

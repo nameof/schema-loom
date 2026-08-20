@@ -3,6 +3,7 @@ package io.github.nameof.schemaloom.dialect;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 
 import java.util.*;
 
@@ -22,23 +23,21 @@ public interface DatabaseDialect {
      */
     DatabaseTypeMapping mapping(LogicalType type);
 
-    /**
-     * 根据指定 Schema 生成 CREATE TABLE SQL。
-     */
-    String createTable(String table, RecordSchema schema);
+    /** 根据源表元数据生成 CREATE TABLE SQL，包括可安全迁移的默认值。 */
+    String createTableSql(String table, TableInfo source);
 
     /**
      * 根据已引用的表名生成 DROP TABLE SQL。
      */
     String dropTable(String table);
 
-    /** Creates a view from a SELECT definition obtained from the source database. */
+    /** 根据从源数据库获取的 SELECT 定义创建视图。 */
     String createView(String view, String definition);
 
-    /** Drops an already quoted view name. */
+    /** 删除已引用的视图名称。 */
     String dropView(String view);
 
-    /** Builds the database-specific, parameterized query used to read a view definition. */
+    /** 构建用于读取视图定义的数据库专用参数化查询。 */
     ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view);
 
     /**
