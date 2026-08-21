@@ -39,11 +39,13 @@ public final class CsvSource implements Source {
     }
 
     /** 返回显式 Schema；未提供时只扫描一次标题和最多 1000 行样本。 */
-    public RecordSchema schema() {
+    private RecordSchema recordSchema() {
         if (explicit != null) return explicit;
         if (inferred == null) inferred = infer();
         return inferred;
     }
+
+    public SchemaDescriptor schema() { return SchemaDescriptor.of(recordSchema()); }
 
     /** 根据标题和样本值推断字段类型，空值不参与推断。 */
     private RecordSchema infer() {
@@ -92,7 +94,7 @@ public final class CsvSource implements Source {
 
     /** 重新打开文件并按批次流式读取，避免把整个 CSV 加载到内存。 */
     public void read(BatchConsumer consumer) {
-        RecordSchema s = schema();
+        RecordSchema s = recordSchema();
         try {
             BufferedReader r = Files.newBufferedReader(path, charset);
             try {

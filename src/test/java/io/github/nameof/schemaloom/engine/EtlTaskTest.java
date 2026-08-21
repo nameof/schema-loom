@@ -152,7 +152,7 @@ public class EtlTaskTest {
         final boolean[] closed = {false};
         final MemorySource delegate = new MemorySource(s, rows(s), 3);
         Source source = new Source() {
-            public RecordSchema schema() {
+            public SchemaDescriptor schema() {
                 return delegate.schema();
             }
 
@@ -182,8 +182,8 @@ public class EtlTaskTest {
         DatabaseConnectionInfo targetConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         EtlResult result = EtlTask.builder()
-                .source(new JdbcTableSource(sourceConfig, "testview"))
-                .target(new JdbcTableTarget(targetConfig, "b"))
+                .source(new JdbcTableSource(sourceConfig, "jsh_account"))
+                .target(new JdbcTableTarget(targetConfig, "ssb"))
                 .targetMode(TargetMode.APPEND)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);

@@ -24,7 +24,7 @@ public final class FieldMapping {
         return target;
     }
 
-    /** 按映射生成目标 Schema；未提供映射时保留字段，并同步转换主键字段名。 */
+    /** 按映射将源字段schema转换成目标字段schema；未提供映射时保留字段，并同步转换主键字段名。 */
     public static RecordSchema mapSchema(RecordSchema source, List<FieldMapping> mappings) {
         List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source) : mappings;
         List<FieldSchema> fs = new ArrayList<>();
@@ -41,11 +41,12 @@ public final class FieldMapping {
         return new RecordSchema(fs, keys);
     }
 
-    /** Maps source table metadata together with its schema, preserving column defaults. */
+    /** 映射源表元数据及其 Schema */
     public static TableInfo mapTableInfo(TableInfo source, RecordSchema target, List<FieldMapping> mappings) {
         List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source.getSchema()) : mappings;
         Map<String, ColumnInfo> columns = new HashMap<String, ColumnInfo>();
-        for (ColumnInfo column : source.getColumns()) columns.put(column.getName().toLowerCase(Locale.ENGLISH), column);
+        for (ColumnInfo column : source.getColumns())
+            columns.put(column.getName().toLowerCase(Locale.ENGLISH), column);
         List<ColumnInfo> mapped = new ArrayList<ColumnInfo>();
         for (FieldMapping mapping : ms) {
             ColumnInfo column = columns.get(mapping.source.toLowerCase(Locale.ENGLISH));
@@ -55,8 +56,8 @@ public final class FieldMapping {
                     column.getDefaultValue(), column.isAutoIncremented(), column.isGenerated()));
         }
         return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, null,
-                Collections.<IndexInfo>emptyList(), Collections.<ForeignKeyInfo>emptyList(),
-                Collections.<ConstraintInfo>emptyList(), source.getRemarks());
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), source.getRemarks());
     }
 
     /** 按映射顺序提取记录值，构造目标 Schema 对应的新记录。 */

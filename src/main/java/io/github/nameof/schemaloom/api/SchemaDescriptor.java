@@ -7,14 +7,19 @@ public final class SchemaDescriptor {
     private final RecordSchema schema;
     private final TableInfo tableInfo;
 
-    public SchemaDescriptor(RecordSchema schema) {
-        this(schema, null);
-    }
-
-    public SchemaDescriptor(RecordSchema schema, TableInfo tableInfo) {
-        if (schema == null) throw new IllegalArgumentException("schema is required");
+    private SchemaDescriptor(RecordSchema schema, TableInfo tableInfo) {
         this.schema = schema;
         this.tableInfo = tableInfo;
+    }
+
+    public static SchemaDescriptor of(RecordSchema schema) {
+        if (schema == null) throw new IllegalArgumentException("record schema is required");
+        return new SchemaDescriptor(schema, null);
+    }
+
+    public static SchemaDescriptor of(TableInfo tableInfo) {
+        if (tableInfo == null) throw new IllegalArgumentException("table metadata is required");
+        return new SchemaDescriptor(tableInfo.getSchema(), tableInfo);
     }
 
     public RecordSchema getSchema() { return schema; }

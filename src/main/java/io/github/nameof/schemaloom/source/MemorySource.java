@@ -16,8 +16,8 @@ public final class MemorySource implements Source {
         this.batchSize = batchSize;
     }
 
-    public RecordSchema schema() {
-        return schema;
+    public SchemaDescriptor schema() {
+        return SchemaDescriptor.of(schema);
     }
 
     public long count() {

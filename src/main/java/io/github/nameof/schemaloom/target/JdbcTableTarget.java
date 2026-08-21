@@ -41,11 +41,6 @@ public final class JdbcTableTarget implements Target {
         this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType());
     }
 
-    public void prepare(RecordSchema s, TargetMode mode) {
-        prepare(new SchemaDescriptor(s), mode);
-    }
-
-    @Override
     public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
         if (descriptor == null) throw new IllegalArgumentException("schema descriptor is required");
         schema = descriptor.getSchema();

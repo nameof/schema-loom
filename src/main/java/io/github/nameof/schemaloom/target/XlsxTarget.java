@@ -29,9 +29,9 @@ public final class XlsxTarget implements Target {
     }
 
     /** 仅支持 REPLACE，并先创建 .part 工作簿避免覆盖已有文件。 */
-    public void prepare(RecordSchema s, TargetMode mode) {
+    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
         if (mode != TargetMode.REPLACE) throw new IllegalArgumentException("XLSX supports REPLACE only");
-        schema = s;
+        schema = descriptor.getSchema();
         part = path.resolveSibling(path.getFileName() + ".part");
         writer = ExcelUtil.getBigWriter(part.toFile(), "Sheet1");
         writer.writeHeadRow(names());

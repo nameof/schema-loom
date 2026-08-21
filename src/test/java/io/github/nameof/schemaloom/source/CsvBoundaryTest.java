@@ -30,7 +30,7 @@ public class CsvBoundaryTest {
         Path file = Files.createTempFile("schemaloom-infer", ".csv");
         Files.write(file, Arrays.asList("code,name,amount,day", "00123,中文,12.50,2026-08-02"), StandardCharsets.UTF_8);
         CsvSource source = new CsvSource(file);
-        RecordSchema schema = source.schema();
+        RecordSchema schema = source.schema().getSchema();
         assertEquals(LogicalType.STRING, schema.field("code").getLogicalType());
         assertEquals(LogicalType.STRING, schema.field("name").getLogicalType());
         assertEquals(LogicalType.DECIMAL, schema.field("amount").getLogicalType());
@@ -64,13 +64,13 @@ public class CsvBoundaryTest {
         Path file = Files.createTempFile("schemaloom-target", ".csv");
         RecordSchema schema = new RecordSchema(Arrays.asList(FieldSchema.of("id", LogicalType.INT32), FieldSchema.of("name", LogicalType.STRING)));
         CsvTarget replace = new CsvTarget(file);
-        replace.prepare(schema, TargetMode.REPLACE);
+        replace.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
         replace.write(batch(schema, 1, "一"));
         replace.close();
         assertEquals(Arrays.asList("id,name", "1,一"), Files.readAllLines(file, StandardCharsets.UTF_8));
 
         CsvTarget append = new CsvTarget(file);
-        append.prepare(schema, TargetMode.APPEND);
+        append.prepare(SchemaDescriptor.of(schema), TargetMode.APPEND);
         append.write(batch(schema, 2, "二"));
         append.close();
         assertEquals(Arrays.asList("id,name", "1,一", "2,二"), Files.readAllLines(file, StandardCharsets.UTF_8));
@@ -81,7 +81,7 @@ public class CsvBoundaryTest {
         Path file = Files.createTempFile("schemaloom-partial", ".csv");
         RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("value", LogicalType.STRING)));
         CsvTarget target = new CsvTarget(file);
-        target.prepare(schema, TargetMode.REPLACE);
+        target.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
         new DataRecord(schema, Collections.<Object>singletonList(new Object()));
     }
 

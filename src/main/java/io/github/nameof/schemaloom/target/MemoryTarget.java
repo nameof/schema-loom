@@ -9,8 +9,8 @@ public final class MemoryTarget implements Target {
     private final List<DataRecord> records = new ArrayList<DataRecord>();
     private boolean prepared;
 
-    public void prepare(RecordSchema schema, TargetMode mode) {
-        this.schema = schema;
+    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+        this.schema = descriptor.getSchema();
         prepared = true;
         if (mode == TargetMode.REPLACE) records.clear();
     }

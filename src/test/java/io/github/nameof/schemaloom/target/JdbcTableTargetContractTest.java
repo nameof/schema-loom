@@ -59,5 +59,7 @@ public class JdbcTableTargetContractTest {
         }, new QualifiedTableName(null, null, "ORDERS"), DatabaseType.MYSQL);
     }
 
-    private RecordSchema schema(FieldSchema... fields) { return new RecordSchema(Arrays.asList(fields)); }
+    private SchemaDescriptor schema(FieldSchema... fields) {
+        return SchemaDescriptor.of(new RecordSchema(Arrays.asList(fields)));
+    }
 }

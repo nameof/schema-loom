@@ -19,7 +19,7 @@ public class XlsxBoundaryTest {
         Path file = Files.createTempFile("schemaloom-xlsx", ".xlsx");
         RecordSchema schema = new RecordSchema(Arrays.asList(FieldSchema.of("code", LogicalType.STRING), FieldSchema.of("name", LogicalType.STRING)));
         XlsxTarget target = new XlsxTarget(file);
-        target.prepare(schema, TargetMode.REPLACE);
+        target.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
         target.write(new RecordBatch(schema, Collections.singletonList(new DataRecord(schema, Arrays.<Object>asList("00123", "中文")))));
         target.close();
 
@@ -33,7 +33,7 @@ public class XlsxBoundaryTest {
     @Test(expected = IllegalArgumentException.class)
     public void rejectsAppendMode() throws Exception {
         Path file = Files.createTempFile("schemaloom-xlsx-append", ".xlsx");
-        new XlsxTarget(file).prepare(new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32))), TargetMode.APPEND);
+        new XlsxTarget(file).prepare(SchemaDescriptor.of(new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32)))), TargetMode.APPEND);
     }
 
     @Test
@@ -41,7 +41,7 @@ public class XlsxBoundaryTest {
         Path file = Files.createTempFile("schemaloom-xlsx-sheets", ".xlsx");
         RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32)));
         XlsxTarget target = new XlsxTarget(file, 3);
-        target.prepare(schema, TargetMode.REPLACE);
+        target.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
         List<DataRecord> records = new ArrayList<DataRecord>();
         for (int i = 1; i <= 3; i++) records.add(new DataRecord(schema, Collections.<Object>singletonList(i)));
         target.write(new RecordBatch(schema, records));
@@ -71,7 +71,7 @@ public class XlsxBoundaryTest {
         data.createCell(1).setCellValue("中文");
         OutputStream out = Files.newOutputStream(file);
         try { workbook.write(out); } finally { out.close(); workbook.close(); }
-        RecordSchema schema = new XlsxSource(file, "Data", null).schema();
+        RecordSchema schema = new XlsxSource(file, "Data", null).schema().getSchema();
         assertEquals(LogicalType.DECIMAL, schema.field("amount").getLogicalType());
         assertEquals(LogicalType.STRING, schema.field("name").getLogicalType());
     }
@@ -81,7 +81,7 @@ public class XlsxBoundaryTest {
         Path file = Files.createTempFile("schemaloom-xlsx-batch", ".xlsx");
         RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32)));
         XlsxTarget target = new XlsxTarget(file);
-        target.prepare(schema, TargetMode.REPLACE);
+        target.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
         List<DataRecord> records = new ArrayList<DataRecord>();
         for (int i = 1; i <= 3; i++) records.add(new DataRecord(schema, Collections.<Object>singletonList(i)));
         target.write(new RecordBatch(schema, records));
@@ -102,7 +102,7 @@ public class XlsxBoundaryTest {
                 FieldSchema.of("payload", LogicalType.BINARY),
                 FieldSchema.of("offset_at", LogicalType.OFFSET_TIMESTAMP)));
         XlsxTarget target = new XlsxTarget(file);
-        target.prepare(schema, TargetMode.REPLACE);
+        target.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
         target.write(new RecordBatch(schema, Collections.singletonList(new DataRecord(schema, Arrays.<Object>asList(
                 LocalDate.of(2026, 8, 13), LocalDateTime.of(2026, 8, 13, 14, 30),
                 new byte[]{1, 2, 3}, OffsetDateTime.parse("2026-08-13T14:30:00+08:00"))))));

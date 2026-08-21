@@ -185,6 +185,48 @@ Source source = new JdbcQuerySource(
     1000);
 ```
 
+### VIEW 支持与任务方式
+
+SchemaLoom 将 VIEW 分为“读取数据”和“迁移视图定义”两种独立场景：
+
+- `JdbcTableSource` 可以读取 TABLE 或 VIEW。VIEW 只作为只读查询来源，不会复制其底层表结构。
+- `JdbcTableTarget` 始终表示普通目标表。目标表不存在时，会根据 Source（包括 VIEW）的输出 Schema 自动创建；已存在时按 `APPEND` 或 `REPLACE` 处理。
+- 如果目标对象已经是 VIEW，`JdbcTableTarget` 会失败，不会向 VIEW 写入，也不会把 VIEW 当作普通表删除重建。
+- 如果要把 VIEW 结果物化为表，使用普通 `EtlTask`，由用户指定目标表名：
+
+```java
+EtlResult result = EtlTask.builder()
+    .source(new JdbcTableSource(sourceDatabase, "v_orders"))
+    .target(new JdbcTableTarget(targetDatabase, "orders_snapshot"))
+    .targetMode(TargetMode.REPLACE)
+    .build()
+    .run();
+```
+
+- 如果要在目标数据库中创建 VIEW 定义，使用独立的 `JdbcViewMigrationTask`。它不复制 VIEW 数据，只读取源 VIEW 的定义并创建目标 VIEW：
+
+```java
+EtlResult result = new JdbcViewMigrationTask(
+    sourceDatabase,
+    targetDatabase,
+    "v_orders",
+    "v_orders")
+    .run();
+
+if (result.getStatus() != EtlStatus.SUCCESS) {
+    System.out.println(result.getErrors().get(0).getMessage());
+}
+```
+
+`JdbcViewMigrationTask` 与 `EtlTask` 使用相同的 `EtlResult` 结果模型。视图定义读取、权限、目标对象冲突、方言不匹配等执行异常会返回 `FAILED` 和 `EtlError`，不会直接抛给调用方；也可以通过 `LocalTaskExecutor.submit(...)` 异步执行。
+
+VIEW 数据迁移和 VIEW 定义迁移的异库能力不同：
+
+- `JdbcTableSource` 读取 VIEW、`JdbcTableTarget` 写入目标表的路径支持异库，也支持跨数据库类型；因为迁移的是 VIEW 查询结果，不会复制或改写 VIEW SQL。
+- `JdbcViewMigrationTask` 只复制 VIEW 定义，当前要求源、目标数据库类型及命名空间一致，尚不支持异库、跨数据库类型或跨 Schema 的 VIEW SQL 改写。
+
+创建 VIEW 前，应先迁移其依赖的目标表；无法读取 VIEW 定义时任务会返回失败结果。
+
 ### Quickstart：文件到数据库
 
 CSV 默认使用 UTF-8、逗号分隔和标题行。未提供 Schema 时会从最多 1000 行样本推断类型；对金额、标识符和前导零字段，建议显式提供 Schema。
@@ -405,6 +447,41 @@ public final class MySource implements Source {
 - `close` 应可重复调用，并释放连接、文件句柄等资源。
 - 不需要注册 SPI、`ServiceLoader` 或框架上下文。
 
+## 数据类型归一化
+
+`LogicalType` 只描述字段语义，不能保证不同 Source 返回相同的 Java 对象。例如同为 `TIMESTAMP`，JDBC 可能返回驱动对象，XLSX 可能返回日期序列号，CSV 只有文本。直接把 Source 值交给 Target 写入，会依赖目标驱动或文件库的猜测，容易出现写入失败、精度丢失或时区语义丢失。
+
+SchemaLoom 将转换放在 Source 和 Target 边界，任务、Transformer 和 `DataRecord` 中间只流转标准 Java 类型：
+
+例如，`TIMESTAMP` 在 CSV 中是 `2026-08-14T10:30:00` 这样的文本，在 XLSX 中可能是日期序列号，在 JDBC 中可能是 `Timestamp` 或驱动对象；进入 `DataRecord` 前都会变成 `LocalDateTime`。写出时再分别变成 ISO-8601 文本、Excel 日期值或 `setTimestamp` 参数。
+
+同理，`BINARY` 在 CSV/XLSX 中使用 Base64 文本，在 `DataRecord` 中始终是 `byte[]`；`DECIMAL` 在外部可能是文本或数字单元格，在 `DataRecord` 中始终是 `BigDecimal`。
+
+```text
+CSV 文本 / XLSX 单元格 / JDBC 驱动对象
+                  |
+                  | Source：按 LogicalType 解码
+                  v
+        SchemaLoom 标准 Java 值
+  LocalDate / LocalDateTime / BigDecimal / byte[] ...
+                  |
+                  | DataRecord：校验值类型
+                  v
+        Transformer：只处理标准值
+                  |
+                  | Target：按目标格式编码
+                  v
+CSV 文本 / XLSX 单元格 / JDBC 类型化参数
+```
+
+### 新增逻辑类型
+
+新增类型必须先在 `LogicalTypeCatalog` 创建完整 `LogicalTypeDefinition`，明确标准 Java 类型、文本/XLSX/JDBC 的读写规则和 JDBC `NULL` 类型。随后在每个 `DatabaseDialect` 显式声明支持或 `unsupported()`。Catalog 和方言都有完整性检查：遗漏注册会立即失败，不能依赖 `default` 分支静默降级。
+
+### 新增 Source 或 Target
+
+新 Source 负责读取外部原始值，并按字段调用 `LogicalTypeCatalog.get(field.getLogicalType())` 解码后再创建 `DataRecord`。新 Target 只读取 `DataRecord` 的标准值，按字段调用 Catalog 编码，并在 `prepare` 阶段声明或检查不支持的逻辑类型。Source/Target 不应各自维护 `LogicalType` 的 `switch` 或重复实现类型转换。
+
 ## 测试
 
 运行默认单元测试：
@@ -465,7 +542,6 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 
 ## 核心功能&BUG TODO
-- 当前 LogicalType 对应的实际数据未规范化，例如同样的时间 LogicalType 在 MySQL、Oracle、XLSX 中可能返回不同 Java 对象，异库任务可能直接报错。问题背景、当前实现和解决方案见 [`LOGICAL_TYPE_NORMALIZATION.md`](LOGICAL_TYPE_NORMALIZATION.md)。
 - 使用SchemaCrawler操作数据库，并封装实体类，不对外暴露SchemaCrawler API
 - 索引、字段默认值、自增、注释复制
 - 明确区分 TABLE 和 VIEW，视图是只读对象，不能按普通表处理；可支持复制视图
@@ -480,7 +556,10 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 ## 优化TODO
 - loader、provider、connection、source、target 、task，一环套一环，需简化资源释放和引用关系
 - 资源配额：连接、内存、线程、文件限制
+- 异库/跨数据库类型的视图定义迁移
 - CsvSource/CsvTarget 支持多行引号字段:CsvSource.read() 使用 r.readLine() 逐行读取，parse() 也只处理单行。当 CSV 字段包含换行符（如 "line1\nline2"），会导致解析错乱。同时 CsvTarget.escape() 不检测字段值中的换行符，也不会用引号包裹，导致写出的 CSV 不可被标准解析器读取。
+- 支持指定数据库编码、内容编码
+- 
 
 ## 低优先级TODO
 - 冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）

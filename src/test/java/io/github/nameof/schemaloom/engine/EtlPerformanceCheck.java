@@ -37,7 +37,7 @@ public class EtlPerformanceCheck {
             this.batchSize = batchSize;
         }
 
-        public RecordSchema schema() { return schema; }
+        public SchemaDescriptor schema() { return SchemaDescriptor.of(schema); }
 
         public void read(BatchConsumer consumer) {
             for (int offset = 0; offset < total; offset += batchSize) {
@@ -55,7 +55,7 @@ public class EtlPerformanceCheck {
     private static final class CountingTarget implements Target {
         int count;
 
-        public void prepare(RecordSchema schema, TargetMode mode) { }
+        public void prepare(SchemaDescriptor schema, TargetMode mode) { }
 
         public BatchWriteResult write(RecordBatch batch) {
             count += batch.size();

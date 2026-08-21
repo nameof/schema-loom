@@ -108,13 +108,8 @@ public final class JdbcTableSource implements Source {
         return tableInfo;
     }
 
-    public RecordSchema schema() {
-        return ensureSchema();
-    }
-
-    @Override
-    public SchemaDescriptor describeSchema() {
-        return new SchemaDescriptor(ensureSchema(), tableInfo());
+    public SchemaDescriptor schema() {
+        return SchemaDescriptor.of(tableInfo());
     }
 
     public long count() {

@@ -27,8 +27,8 @@ public final class CsvTarget implements Target {
     }
 
     /** 创建 CSV 输出；REPLACE 先写入 .part，APPEND 先校验已有标题。 */
-    public void prepare(RecordSchema schema, TargetMode mode) {
-        this.schema = schema;
+    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+        this.schema = descriptor.getSchema();
         try {
             // REPLACE 不直接覆盖旧文件，避免任务失败时破坏原文件。
             Path out = mode == TargetMode.REPLACE ? path.resolveSibling(path.getFileName() + ".part") : path;

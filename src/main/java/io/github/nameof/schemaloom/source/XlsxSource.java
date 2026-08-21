@@ -39,7 +39,7 @@ public final class XlsxSource implements Source {
     }
 
     /** 返回显式 Schema；否则扫描指定 Sheet 的标题和最多 1000 行样本。 */
-    public RecordSchema schema() {
+    private RecordSchema recordSchema() {
         if (explicit != null) return explicit;
         if (inferred == null) {
             final List<List<Object>> rows = new ArrayList<>();
@@ -54,11 +54,13 @@ public final class XlsxSource implements Source {
         return inferred;
     }
 
+    public SchemaDescriptor schema() { return SchemaDescriptor.of(recordSchema()); }
+
     /** 使用 Hutool SAX 流式读取指定 Sheet，并按批次回调数据。
      *  当 skipMalformed 为 true 时，解码失败或列数严重不匹配的行会被静默跳过，
      *  适用于 Excel 中夹杂章节标题等非数据行的场景。 */
     public void read(final BatchConsumer c) {
-        final RecordSchema s = schema();
+        final RecordSchema s = recordSchema();
         final int fieldCount = s.getFields().size();
         ExcelUtil.readBySax(path.toFile(), sheet, new Handler() {
             private boolean head = true;

@@ -32,7 +32,7 @@ public final class JdbcQuerySource implements Source {
         this.fetchSize = fetchSize;
     }
 
-    public RecordSchema schema() {
+    private RecordSchema recordSchema() {
         if (schema == null) try {
             PreparedStatement s = provider.getConnection().prepareStatement(sql);
             try {
@@ -53,6 +53,8 @@ public final class JdbcQuerySource implements Source {
         return schema;
     }
 
+    public SchemaDescriptor schema() { return SchemaDescriptor.of(recordSchema()); }
+
     private RecordSchema readSchema(ResultSetMetaData m) throws SQLException {
         List<FieldSchema> fs = new ArrayList<FieldSchema>();
         for (int i = 1; i <= m.getColumnCount(); i++)
@@ -65,7 +67,7 @@ public final class JdbcQuerySource implements Source {
     }
 
     public void read(BatchConsumer c) {
-        RecordSchema sc = schema();
+        RecordSchema sc = recordSchema();
         try {
             PreparedStatement s = provider.getConnection().prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
             try {

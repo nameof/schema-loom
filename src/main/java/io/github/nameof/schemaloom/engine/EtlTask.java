@@ -44,11 +44,12 @@ public final class EtlTask implements Callable<EtlResult> {
             if (total < 0) total = -1L;
             notifyStarted(new EtlProgress(total, 0, 0, 0, 0, 0, 0, start));
 
-            SchemaDescriptor sourceDescriptor = source.describeSchema();
+            SchemaDescriptor sourceDescriptor = source.schema();
             RecordSchema targetSchema = FieldMapping.mapSchema(sourceDescriptor.getSchema(), mappings);
             TableInfo mappedTable = sourceDescriptor.getTableInfo() == null ? null
                     : FieldMapping.mapTableInfo(sourceDescriptor.getTableInfo(), targetSchema, mappings);
-            SchemaDescriptor targetDescriptor = new SchemaDescriptor(targetSchema, mappedTable);
+            SchemaDescriptor targetDescriptor = mappedTable == null
+                    ? SchemaDescriptor.of(targetSchema) : SchemaDescriptor.of(mappedTable);
             target.prepare(targetDescriptor, targetMode);
             final RecordSchema schema = targetSchema;
             final long observedTotal = total;
