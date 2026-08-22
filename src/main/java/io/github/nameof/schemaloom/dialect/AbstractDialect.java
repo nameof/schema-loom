@@ -46,20 +46,39 @@ abstract class AbstractDialect implements DatabaseDialect {
             b.append(quote(f.getName())).append(' ').append(mapping.getDdlType(f));
             if (metadata != null) {
                 ColumnInfo column = metadata.get(f.getName().toLowerCase(Locale.ENGLISH));
-                if (column != null && column.getDefaultValue() != null && !column.isAutoIncremented() && !column.isGenerated())
-                    b.append(" DEFAULT ").append(defaultValue(column));
+                if (column != null) {
+                    if (column.isGenerated()) b.append(' ').append(generatedColumn(column));
+                    else if (column.isAutoIncremented()) b.append(' ').append(identityColumn(column));
+                    else if (column.getDefaultValue() != null) b.append(" DEFAULT ").append(defaultValue(column));
+                }
             }
-            if (!f.isNullable()) b.append(" NOT NULL");
+            if (!f.isNullable() && (metadata == null || metadata.get(f.getName().toLowerCase(Locale.ENGLISH)) == null
+                    || !metadata.get(f.getName().toLowerCase(Locale.ENGLISH)).isGenerated())) b.append(" NOT NULL");
         }
         if (!s.getPrimaryKeyFields().isEmpty()) {
             b.append(", PRIMARY KEY (");
             for (int i = 0; i < s.getPrimaryKeyFields().size(); i++) {
                 if (i > 0) b.append(", ");
-                b.append(quote(s    .getPrimaryKeyFields().get(i)));
+                b.append(quote(s.getPrimaryKeyFields().get(i)));
             }
             b.append(')');
         }
         return b.append(')').toString();
+    }
+
+    /** 目标方言的 identity / 自增列定义。 */
+    protected String identityColumn(ColumnInfo column) {
+        throw new IllegalArgumentException("identity columns are not supported by this dialect: " + column.getName());
+    }
+
+    /** 目标方言的生成列定义 */
+    protected String generatedColumn(ColumnInfo column) {
+        String expression = column.getGeneratedExpression();
+        if (expression == null || expression.trim().isEmpty())
+            throw new IllegalArgumentException("generated column expression is missing for field '" + column.getName() + "'");
+        String value = expression.trim();
+        if (!(value.startsWith("(") && value.endsWith(")"))) value = "(" + value + ")";
+        return "GENERATED ALWAYS AS " + value;
     }
 
     /** 转换跨数据库可确认安全的默认值表达式；未知表达式必须显式失败。 */

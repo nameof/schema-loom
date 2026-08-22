@@ -559,7 +559,10 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 - 异库/跨数据库类型的视图定义迁移
 - CsvSource/CsvTarget 支持多行引号字段:CsvSource.read() 使用 r.readLine() 逐行读取，parse() 也只处理单行。当 CSV 字段包含换行符（如 "line1\nline2"），会导致解析错乱。同时 CsvTarget.escape() 不检测字段值中的换行符，也不会用引号包裹，导致写出的 CSV 不可被标准解析器读取。
 - 支持指定数据库编码、内容编码
-- 
+- 数据读取API
+  - 数据预览: previewData(Connection, schemaName, tableName, limit)，输出DataPreviewResult (columns: List<ColumnInfo>, rows: List<Map<String,Object>>)
+  - 表数据量统计：getTableStatistics(Connection, schemaName, tableName)，输出TableStatistics (rowCount, dataLength, indexLength, avgRowLength)
+  - Schema统计：getSchemaStatistics(Connection, schemaName)，输出SchemaStatistics (totalTables, totalRows, totalDataLength)
 
 ## 低优先级TODO
 - 冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）

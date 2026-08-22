@@ -53,7 +53,7 @@ public final class FieldMapping {
             if (column == null) continue;
             mapped.add(new ColumnInfo(mapping.target, column.getTypeName(), column.getRemarks(), column.getLogicalType(),
                     column.getOrdinal(), column.isNullable(), column.getLength(), column.getPrecision(), column.getScale(),
-                    column.getDefaultValue(), column.isAutoIncremented(), column.isGenerated()));
+                    column.getDefaultValue(), column.getGeneratedExpression(), column.isAutoIncremented(), column.isGenerated()));
         }
         return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, null,
                 Collections.emptyList(), Collections.emptyList(),

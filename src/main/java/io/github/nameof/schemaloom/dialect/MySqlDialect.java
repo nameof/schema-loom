@@ -25,6 +25,9 @@ final class MySqlDialect extends AbstractDialect {
     }
 
     @Override
+    protected String identityColumn(ColumnInfo column) { return "AUTO_INCREMENT"; }
+
+    @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
         String schema = view.getCatalog() == null ? source.getCatalog() : view.getCatalog();
         if (schema == null) schema = source.getDatabase();

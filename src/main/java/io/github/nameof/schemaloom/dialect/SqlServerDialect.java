@@ -27,6 +27,19 @@ final class SqlServerDialect extends AbstractDialect {
     }
 
     @Override
+    protected String identityColumn(ColumnInfo column) { return "IDENTITY(1,1)"; }
+
+    @Override
+    protected String generatedColumn(ColumnInfo column) {
+        String expression = column.getGeneratedExpression();
+        if (expression == null || expression.trim().isEmpty())
+            throw new IllegalArgumentException("generated column expression is missing for field '" + column.getName() + "'");
+        String value = expression.trim();
+        if (value.startsWith("(") && value.endsWith(")")) value = value.substring(1, value.length() - 1).trim();
+        return "AS (" + value + ")";
+    }
+
+    @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
         String name = view.getSchema() == null ? view.getTable() : view.getSchema() + "." + view.getTable();
         return new ViewDefinitionQuery("SELECT OBJECT_DEFINITION(OBJECT_ID(?))", Collections.<Object>singletonList(name));

@@ -22,9 +22,9 @@ public final class DatabaseMetadataService {
     }
 
     public List<CatalogInfo> listCatalogs(ConnectionProvider provider) {
-        Set<String> names = new LinkedHashSet<String>();
+        Set<String> names = new LinkedHashSet<>();
         for (Schema schema : catalog(provider).getSchemas()) if (schema.getCatalogName() != null) names.add(schema.getCatalogName());
-        List<CatalogInfo> out = new ArrayList<CatalogInfo>();
+        List<CatalogInfo> out = new ArrayList<>();
         for (String name : names) out.add(new CatalogInfo(name));
         return out;
     }
@@ -86,14 +86,21 @@ public final class DatabaseMetadataService {
         List<FieldSchema> fields = new ArrayList<FieldSchema>();
         for (Column column : table.getColumns()) {
             Integer typeNumber = column.getColumnDataType().getJavaSqlType().getVendorTypeNumber();
+            LogicalType logicalType = JdbcTypes.logical(typeNumber == null ? java.sql.Types.VARCHAR : typeNumber);
+            Integer size = column.getSize();
+            Integer length = logicalType == LogicalType.STRING || logicalType == LogicalType.BINARY ? size : null;
+            Integer precision = logicalType == LogicalType.DECIMAL ? size : null;
+            Integer scale = logicalType == LogicalType.DECIMAL ? column.getDecimalDigits() : null;
+            String value = column.getDefaultValue();
             ColumnInfo info = new ColumnInfo(column.getName(), column.getColumnDataType().getDatabaseSpecificTypeName(), column.getRemarks(),
-                    JdbcTypes.logical(typeNumber == null ? java.sql.Types.VARCHAR : typeNumber), column.getOrdinalPosition(), column.isNullable(),
-                    column.getSize(), column.getSize(), column.getDecimalDigits(), column.getDefaultValue(), column.isAutoIncremented(), column.isGenerated());
+                    logicalType, column.getOrdinalPosition(), column.isNullable(), length, precision, scale,
+                    column.isGenerated() ? null : value, column.isGenerated() ? value : null,
+                    column.isAutoIncremented(), column.isGenerated());
             columns.add(info);
             fields.add(new FieldSchema(info.getName(), info.getLogicalType(), info.isNullable(), info.getLength(), info.getPrecision(), info.getScale()));
         }
         PrimaryKeyInfo primaryKey = primaryKey(table);
-        List<String> keyColumns = primaryKey == null ? Collections.<String>emptyList() : primaryKey.getColumns();
+        List<String> keyColumns = primaryKey == null ? Collections.emptyList() : primaryKey.getColumns();
         return new TableInfo(name, table.getTableType().isView(), table.getTableType().getTableType(), new RecordSchema(fields, keyColumns), columns,
                 primaryKey, indexes(table), foreignKeys(table), constraints(table), table.getRemarks());
     }
