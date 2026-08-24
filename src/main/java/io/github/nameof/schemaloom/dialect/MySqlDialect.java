@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.ColumnInfo;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 
 import java.util.*;
 
@@ -26,6 +27,16 @@ final class MySqlDialect extends AbstractDialect {
 
     @Override
     protected String identityColumn(ColumnInfo column) { return "AUTO_INCREMENT"; }
+
+    /** MySQL has no safe standalone column-comment ALTER; keep field comments for future support. */
+    @Override
+    public List<String> commentSql(String table, TableInfo source) {
+        List<String> sql = new ArrayList<String>();
+        if (source.getRemarks() != null)
+            sql.add("ALTER TABLE " + table + " COMMENT = '" + source.getRemarks().replace("'", "''") + "'");
+        // TODO: migrate column comments only when a lossless MySQL syntax is available.
+        return sql;
+    }
 
     @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {

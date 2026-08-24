@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.ColumnInfo;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 
 import java.util.*;
 
@@ -28,6 +29,17 @@ final class SqlServerDialect extends AbstractDialect {
 
     @Override
     protected String identityColumn(ColumnInfo column) { return "IDENTITY(1,1)"; }
+
+    @Override
+    public List<String> commentSql(String table, TableInfo source) {
+        List<String> sql = new ArrayList<String>();
+        String tableName = source.getName().getTable();
+        if (source.getRemarks() != null)
+            sql.add("EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'" + source.getRemarks().replace("'", "''") + "', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'" + tableName + "'");
+        for (ColumnInfo column : source.getColumns()) if (column.getRemarks() != null)
+            sql.add("EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'" + column.getRemarks().replace("'", "''") + "', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'" + tableName + "', @level2type=N'COLUMN', @level2name=N'" + column.getName() + "'");
+        return sql;
+    }
 
     @Override
     protected String generatedColumn(ColumnInfo column) {

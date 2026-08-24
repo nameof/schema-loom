@@ -62,6 +62,8 @@ public final class JdbcTableTarget implements Target {
             }
             if (!exists) {
                 c.createStatement().executeUpdate(dialect.createTableSql(q, tableMetadata));
+                for (String comment : dialect.commentSql(q, tableMetadata))
+                    c.createStatement().executeUpdate(comment);
             } else {
                 validateAppend(existingTable, schema);
             }

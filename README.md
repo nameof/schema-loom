@@ -569,3 +569,4 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 - 临时表/分区表/存储过程/函数/触发器/sequence，明确短期不支持
 - 其他数据源支持：PGSQL、MONGO、JSON
 - JDBC Source：指定部分字段、参数化WHERE过滤条件配置（包含增量脱敏功能）
+- MYSQL 字段注释迁移

@@ -35,6 +35,19 @@ abstract class AbstractDialect implements DatabaseDialect {
         return renderCreateTableSql(table, source.getSchema(), columns);
     }
 
+    /**
+     * Shared by Oracle, PostgreSQL, H2 and other databases supporting
+     * the standard COMMENT ON TABLE/COLUMN syntax.
+     */    @Override
+    public List<String> commentSql(String table, TableInfo source) {
+        List<String> sql = new ArrayList<>();
+        if (source.getRemarks() != null) sql.add("COMMENT ON TABLE " + table + " IS '" + source.getRemarks().replace("'", "''") + "'");
+        for (ColumnInfo column : source.getColumns())
+            if (column.getRemarks() != null)
+                sql.add("COMMENT ON COLUMN " + table + "." + quote(column.getName()) + " IS '" + column.getRemarks().replace("'", "''") + "'");
+        return sql;
+    }
+
     private String renderCreateTableSql(String table, RecordSchema s, Map<String, ColumnInfo> metadata) {
         StringBuilder b = new StringBuilder("CREATE TABLE ").append(table).append(" (");
         for (int i = 0; i < s.getFields().size(); i++) {

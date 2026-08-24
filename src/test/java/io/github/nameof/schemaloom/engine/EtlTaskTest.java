@@ -4,6 +4,8 @@ import cn.hutool.core.bean.BeanUtil;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import io.github.nameof.schemaloom.metadata.DatabaseMetadataService;
+import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.source.JdbcTableSource;
 import io.github.nameof.schemaloom.source.MemorySource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
@@ -14,6 +16,7 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import java.util.*;
+import java.sql.*;
 
 import static org.junit.Assert.*;
 
@@ -176,7 +179,7 @@ public class EtlTaskTest {
 
 
     @Test
-    public void localTest() {
+    public void localTest() throws Exception {
         DatabaseConnectionInfo sourceConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl", "root", "root");
         DatabaseConnectionInfo targetConfig = new DatabaseConnectionInfo(
@@ -188,5 +191,28 @@ public class EtlTaskTest {
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);
         assertTrue(result.getWritten() > 0);
+        verifyMysqlComments(sourceConfig, targetConfig);
+
     }
-}
+
+    private void verifyMysqlComments(DatabaseConnectionInfo sourceConfig, DatabaseConnectionInfo targetConfig) throws Exception {
+        String suffix = String.valueOf(System.currentTimeMillis());
+        String sourceTable = "schemaloom_comment_source_" + suffix;
+        String targetTable = "schemaloom_comment_target_" + suffix;
+        ConnectionProvider sourceProvider = JdbcConnectionFactory.open(sourceConfig);
+        ConnectionProvider targetProvider = JdbcConnectionFactory.open(targetConfig);
+        try {
+            sourceProvider.getConnection().createStatement().executeUpdate("CREATE TABLE `" + sourceTable + "` (`id` INT NOT NULL, `name` VARCHAR(32) COMMENT 'field comment', PRIMARY KEY (`id`)) COMMENT='table comment'");
+            sourceProvider.getConnection().createStatement().executeUpdate("INSERT INTO `" + sourceTable + "` VALUES (1, 'a')");
+            EtlResult result = EtlTask.builder().source(new JdbcTableSource(sourceConfig, sourceTable)).target(new JdbcTableTarget(targetConfig, targetTable)).targetMode(TargetMode.REPLACE).build().run();
+            assertEquals(EtlStatus.SUCCESS, result.getStatus());
+            TableInfo target = new DatabaseMetadataService().getTable(targetProvider, new QualifiedTableName(null, null, targetTable));
+            assertEquals("table comment", target.getRemarks());
+            assertEquals("field comment", target.getColumns().stream().filter(c -> "name".equalsIgnoreCase(c.getName())).findFirst().get().getRemarks());
+        } finally {
+            sourceProvider.getConnection().createStatement().executeUpdate("DROP TABLE IF EXISTS `" + sourceTable + "`");
+            targetProvider.getConnection().createStatement().executeUpdate("DROP TABLE IF EXISTS `" + targetTable + "`");
+            sourceProvider.close();
+            targetProvider.close();
+        }
+    }}
