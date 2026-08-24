@@ -8,6 +8,7 @@ import io.github.nameof.schemaloom.metadata.*;
 
 import java.sql.*;
 import java.util.*;
+import cn.hutool.log.LogFactory;
 
 /**
  * JDBC 普通表 Target。
@@ -24,13 +25,19 @@ public final class JdbcTableTarget implements Target {
     private final ConnectionProvider provider;
     private final QualifiedTableName table;
     private final DatabaseDialect dialect;
+    private final MetadataErrorPolicy metadataErrorPolicy;
     private RecordSchema schema;
     private boolean prepared;
 
     JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type) {
+        this(p, table, type, MetadataErrorPolicy.IGNORE);
+    }
+
+    JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type, MetadataErrorPolicy policy) {
         provider = p;
         this.table = table;
         this.dialect = new DialectRegistry().get(type);
+        this.metadataErrorPolicy = policy == null ? MetadataErrorPolicy.IGNORE : policy;
     }
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table) {
@@ -39,6 +46,10 @@ public final class JdbcTableTarget implements Target {
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
         this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType());
+    }
+
+    public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader, MetadataErrorPolicy policy) {
+        this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType(), policy);
     }
 
     public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
@@ -62,15 +73,63 @@ public final class JdbcTableTarget implements Target {
             }
             if (!exists) {
                 c.createStatement().executeUpdate(dialect.createTableSql(q, tableMetadata));
-                for (String comment : dialect.commentSql(q, tableMetadata))
-                    c.createStatement().executeUpdate(comment);
+                executeMetadataSql(c, dialect.commentSql(q, tableMetadata), "注释");
+                executeMetadataSql(c, dialect.indexSql(q, tableMetadata), "索引");
             } else {
                 validateAppend(existingTable, schema);
+                migrateIndexes(c, q, tableMetadata, existingTable);
             }
             prepared = true;
         } catch (SQLException e) {
             throw new SchemaLoomException("cannot prepare JDBC target", e);
         }
+    }
+
+    /** 按名称和完整定义比较索引；等价索引直接跳过，冲突按结构策略处理。 */
+    private void migrateIndexes(Connection c, String q, TableInfo source, TableInfo target) throws SQLException {
+        for (IndexInfo expected : source.getIndexes()) {
+            if (expected.getName() == null || expected.getName().trim().isEmpty() || expected.getColumns().isEmpty()) continue;
+            IndexInfo equivalent = null;
+            IndexInfo sameName = null;
+            for (IndexInfo actual : target.getIndexes()) {
+                if (sameDefinition(expected, actual)) equivalent = actual;
+                if (actual.getName() != null && actual.getName().equalsIgnoreCase(expected.getName())) sameName = actual;
+            }
+            if (equivalent != null) continue;
+            if (sameName != null) {
+                handleMetadataError("索引冲突: " + expected.getName(), new SchemaLoomException("目标索引定义不一致"));
+                continue;
+            }
+            executeMetadataSql(c, Collections.singletonList(indexSql(expected, q)), "索引");
+        }
+    }
+
+    private String indexSql(IndexInfo index, String tableName) {
+        return dialect.indexSql(tableName, new TableInfo(table, false, schema, Collections.<ColumnInfo>emptyList(), null,
+                Collections.singletonList(index), null)).get(0);
+    }
+
+    private boolean sameDefinition(IndexInfo a, IndexInfo b) {
+        if (a.isUnique() != b.isUnique() || a.getColumns().size() != b.getColumns().size()) return false;
+        for (int i = 0; i < a.getColumns().size(); i++)
+            if (!a.getColumns().get(i).equalsIgnoreCase(b.getColumns().get(i))) return false;
+        return true;
+    }
+
+    private void executeMetadataSql(Connection c, List<String> sql, String stage) throws SQLException {
+        for (String statement : sql) {
+            try {
+                c.createStatement().executeUpdate(statement);
+            } catch (SQLException e) {
+                handleMetadataError(stage + "迁移失败", e);
+            }
+        }
+    }
+
+    private void handleMetadataError(String message, Throwable error) {
+        if (metadataErrorPolicy == MetadataErrorPolicy.FAIL)
+            throw new SchemaLoomException(message, error);
+        LogFactory.get().warn(message + ": " + error.getMessage());
     }
 
     private void validateCapabilities(RecordSchema source) {

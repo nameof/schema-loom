@@ -26,6 +26,7 @@ public interface DatabaseDialect {
     /** 根据源表元数据生成 CREATE TABLE SQL，包括可安全迁移的默认值。 */
     String createTableSql(String table, TableInfo source);
     List<String> commentSql(String table, TableInfo source);
+    List<String> indexSql(String table, TableInfo source);
 
     /**
      * 根据已引用的表名生成 DROP TABLE SQL。

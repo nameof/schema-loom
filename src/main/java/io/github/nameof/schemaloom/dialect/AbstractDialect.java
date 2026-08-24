@@ -48,6 +48,24 @@ abstract class AbstractDialect implements DatabaseDialect {
         return sql;
     }
 
+    @Override
+    public List<String> indexSql(String table, TableInfo source) {
+        List<String> sql = new ArrayList<String>();
+        for (io.github.nameof.schemaloom.metadata.IndexInfo index : source.getIndexes()) {
+            if (index.getName() == null || index.getName().trim().isEmpty() || index.getColumns().isEmpty()) continue;
+            StringBuilder statement = new StringBuilder("CREATE ");
+            if (index.isUnique()) statement.append("UNIQUE ");
+            statement.append("INDEX ").append(quote(index.getName())).append(" ON ").append(table).append(" (");
+            for (int i = 0; i < index.getColumns().size(); i++) {
+                if (i > 0) statement.append(", ");
+                statement.append(quote(index.getColumns().get(i)));
+            }
+            sql.add(statement.append(')').toString());
+        }
+        return sql;
+    }
+
+
     private String renderCreateTableSql(String table, RecordSchema s, Map<String, ColumnInfo> metadata) {
         StringBuilder b = new StringBuilder("CREATE TABLE ").append(table).append(" (");
         for (int i = 0; i < s.getFields().size(); i++) {

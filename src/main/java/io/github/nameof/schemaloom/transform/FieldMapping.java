@@ -55,8 +55,20 @@ public final class FieldMapping {
                     column.getOrdinal(), column.isNullable(), column.getLength(), column.getPrecision(), column.getScale(),
                     column.getDefaultValue(), column.getGeneratedExpression(), column.isAutoIncremented(), column.isGenerated()));
         }
+        Map<String, String> names = new HashMap<String, String>();
+        for (FieldMapping mapping : ms) names.put(mapping.source.toLowerCase(Locale.ENGLISH), mapping.target);
+        List<IndexInfo> indexes = new ArrayList<IndexInfo>();
+        for (IndexInfo index : source.getIndexes()) {
+            List<String> mappedColumns = new ArrayList<String>();
+            for (String name : index.getColumns()) {
+                String mappedName = names.get(name.toLowerCase(Locale.ENGLISH));
+                if (mappedName == null) throw new IllegalArgumentException("索引字段未映射: " + index.getName() + "." + name);
+                mappedColumns.add(mappedName);
+            }
+            indexes.add(new IndexInfo(index.getName(), index.getType(), index.isUnique(), mappedColumns));
+        }
         return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, null,
-                Collections.emptyList(), Collections.emptyList(),
+                indexes, Collections.emptyList(),
                 Collections.emptyList(), source.getRemarks());
     }
 

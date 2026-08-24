@@ -112,4 +112,17 @@ public class DialectTest {
         assertTrue(new DialectRegistry().get(DatabaseType.MYSQL).createTableSql("`t`", source).contains("GENERATED ALWAYS AS (id + 1)"));
         assertTrue(new DialectRegistry().get(DatabaseType.SQL_SERVER).createTableSql("\"t\"", source).contains("AS (id + 1)"));
     }
+
+    @Test
+    public void rendersOrderedNormalAndUniqueIndexes() {
+        List<io.github.nameof.schemaloom.metadata.IndexInfo> indexes = Arrays.asList(
+                new io.github.nameof.schemaloom.metadata.IndexInfo("ix_normal", false, Arrays.asList("last_name", "first_name")),
+                new io.github.nameof.schemaloom.metadata.IndexInfo("ux_email", true, Collections.singletonList("email")));
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false,
+                new RecordSchema(Arrays.asList(FieldSchema.of("last_name", LogicalType.STRING), FieldSchema.of("first_name", LogicalType.STRING), FieldSchema.of("email", LogicalType.STRING))),
+                Collections.<ColumnInfo>emptyList(), null, indexes, null);
+        List<String> sql = new DialectRegistry().get(DatabaseType.MYSQL).indexSql("`t`", source);
+        assertTrue(sql.get(0).contains("INDEX `ix_normal` ON `t` (`last_name`, `first_name`)") );
+        assertTrue(sql.get(1).contains("UNIQUE INDEX `ux_email`") );
+    }
 }
