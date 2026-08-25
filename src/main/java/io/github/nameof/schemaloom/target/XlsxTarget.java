@@ -29,13 +29,14 @@ public final class XlsxTarget implements Target {
     }
 
     /** 仅支持 REPLACE，并先创建 .part 工作簿避免覆盖已有文件。 */
-    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+    public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
         if (mode != TargetMode.REPLACE) throw new IllegalArgumentException("XLSX supports REPLACE only");
         schema = descriptor.getSchema();
         part = path.resolveSibling(path.getFileName() + ".part");
         writer = ExcelUtil.getBigWriter(part.toFile(), "Sheet1");
         writer.writeHeadRow(names());
         rows = 1;
+        return Collections.emptyList();
     }
 
     private List<String> names() {

@@ -50,7 +50,8 @@ public final class EtlTask implements Callable<EtlResult> {
                     : FieldMapping.mapTableInfo(sourceDescriptor.getTableInfo(), targetSchema, mappings);
             SchemaDescriptor targetDescriptor = mappedTable == null
                     ? SchemaDescriptor.of(targetSchema) : SchemaDescriptor.of(mappedTable);
-            target.prepare(targetDescriptor, targetMode);
+            for (EtlError error : target.prepare(targetDescriptor, targetMode))
+                addError(errors, error);
             final RecordSchema schema = targetSchema;
             final long observedTotal = total;
             source.read(batch -> {

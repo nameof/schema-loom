@@ -55,7 +55,7 @@ public class EtlPerformanceCheck {
     private static final class CountingTarget implements Target {
         int count;
 
-        public void prepare(SchemaDescriptor schema, TargetMode mode) { }
+        public List<EtlError> prepare(SchemaDescriptor schema, TargetMode mode) { return Collections.emptyList(); }
 
         public BatchWriteResult write(RecordBatch batch) {
             count += batch.size();

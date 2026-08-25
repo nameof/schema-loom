@@ -9,10 +9,11 @@ public final class MemoryTarget implements Target {
     private final List<DataRecord> records = new ArrayList<DataRecord>();
     private boolean prepared;
 
-    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+    public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
         this.schema = descriptor.getSchema();
         prepared = true;
         if (mode == TargetMode.REPLACE) records.clear();
+        return Collections.emptyList();
     }
 
     public BatchWriteResult write(RecordBatch batch) {

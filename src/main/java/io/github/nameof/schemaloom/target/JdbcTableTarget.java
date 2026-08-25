@@ -8,7 +8,6 @@ import io.github.nameof.schemaloom.metadata.*;
 
 import java.sql.*;
 import java.util.*;
-import cn.hutool.log.LogFactory;
 
 /**
  * JDBC 普通表 Target。
@@ -26,6 +25,7 @@ public final class JdbcTableTarget implements Target {
     private final QualifiedTableName table;
     private final DatabaseDialect dialect;
     private final MetadataErrorPolicy metadataErrorPolicy;
+    private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
     private RecordSchema schema;
     private boolean prepared;
 
@@ -52,7 +52,7 @@ public final class JdbcTableTarget implements Target {
         this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType(), policy);
     }
 
-    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+    public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
         if (descriptor == null) throw new IllegalArgumentException("schema descriptor is required");
         schema = descriptor.getSchema();
         TableInfo tableMetadata = descriptor.getTableInfo() == null
@@ -80,6 +80,9 @@ public final class JdbcTableTarget implements Target {
                 migrateIndexes(c, q, tableMetadata, existingTable);
             }
             prepared = true;
+            List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
+            preparationErrors.clear();
+            return errors;
         } catch (SQLException e) {
             throw new SchemaLoomException("cannot prepare JDBC target", e);
         }
@@ -129,8 +132,9 @@ public final class JdbcTableTarget implements Target {
     private void handleMetadataError(String message, Throwable error) {
         if (metadataErrorPolicy == MetadataErrorPolicy.FAIL)
             throw new SchemaLoomException(message, error);
-        LogFactory.get().warn(message + ": " + error.getMessage());
+        preparationErrors.add(new EtlError(0, "metadata", new SchemaLoomException(message, error)));
     }
+
 
     private void validateCapabilities(RecordSchema source) {
         for (FieldSchema field : source.getFields()) {

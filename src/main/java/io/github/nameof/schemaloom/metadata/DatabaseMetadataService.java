@@ -23,9 +23,12 @@ public final class DatabaseMetadataService {
 
     public List<CatalogInfo> listCatalogs(ConnectionProvider provider) {
         Set<String> names = new LinkedHashSet<>();
-        for (Schema schema : catalog(provider).getSchemas()) if (schema.getCatalogName() != null) names.add(schema.getCatalogName());
+        for (Schema schema : catalog(provider).getSchemas())
+            if (schema.getCatalogName() != null)
+                names.add(schema.getCatalogName());
         List<CatalogInfo> out = new ArrayList<>();
-        for (String name : names) out.add(new CatalogInfo(name));
+        for (String name : names)
+            out.add(new CatalogInfo(name));
         return out;
     }
 

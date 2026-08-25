@@ -515,7 +515,7 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 4. 增强 Schema 演进、默认值、identity、注释、索引、外键和检查约束的复制能力。
 5. 发布稳定版本和版本化 API 文档，并评估 Java 17、SchemaCrawler 17 与 Spring JDBC 6 的升级。
 
-详细的当前实施记录见 [`plan.md`](plan.md)，Java 17 升级说明见 [`MIGRATING_TO_JAVA_17.md`](MIGRATING_TO_JAVA_17.md)。
+详细的当前实施记录见 [`plan.md`](plan.md)，Java 17 升级说明见 [`MIGRATING_TO_JAVA_17.md`](doc/MIGRATING_TO_JAVA_17.md)。
 
 ## 安全边界
 
@@ -542,11 +542,6 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 
 ## 核心功能&BUG TODO
-- 使用SchemaCrawler操作数据库，并封装实体类，不对外暴露SchemaCrawler API
-- 索引、字段默认值、自增、注释复制
-- 明确区分 TABLE 和 VIEW，视图是只读对象，不能按普通表处理；可支持复制视图
-- 允许视图作为 Source，视图不参与目标建表逻辑
-- 外键迁移
 - BLOB等二进制字段：直接跳过；或流式读写，用户可选择忽略（默认）这种字段
 - TEXT/LONGTEXT ：用户可选择忽略
 - CSV 配置：自定义quote、escape
@@ -556,7 +551,6 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 ## 优化TODO
 - loader、provider、connection、source、target 、task，一环套一环，需简化资源释放和引用关系
 - 资源配额：连接、内存、线程、文件限制
-- 异库/跨数据库类型的视图定义迁移
 - CsvSource/CsvTarget 支持多行引号字段:CsvSource.read() 使用 r.readLine() 逐行读取，parse() 也只处理单行。当 CSV 字段包含换行符（如 "line1\nline2"），会导致解析错乱。同时 CsvTarget.escape() 不检测字段值中的换行符，也不会用引号包裹，导致写出的 CSV 不可被标准解析器读取。
 - 支持指定数据库编码、内容编码
 - 数据读取API
@@ -565,8 +559,11 @@ mvn -Dtest=JdbcEtlIntegrationTest test
   - Schema统计：getSchemaStatistics(Connection, schemaName)，输出SchemaStatistics (totalTables, totalRows, totalDataLength)
 
 ## 低优先级TODO
-- 冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）
-- 临时表/分区表/存储过程/函数/触发器/sequence，明确短期不支持
+- 数据冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）
 - 其他数据源支持：PGSQL、MONGO、JSON
-- JDBC Source：指定部分字段、参数化WHERE过滤条件配置（包含增量脱敏功能）
+- JDBC Source：指定部分字段、参数化WHERE过滤条件配置（包含增量ETL功能）
+- 异库/跨数据库类型的视图定义迁移
 - MYSQL 字段注释迁移
+- 外键迁移：doc/FOREIGN_KEY_MIGRATION.md
+- 方言适配特殊类型的索引迁移：FULLTEXT、位图、函数索引等等
+- 临时表/分区表/存储过程/函数/触发器/sequence，明确短期不支持

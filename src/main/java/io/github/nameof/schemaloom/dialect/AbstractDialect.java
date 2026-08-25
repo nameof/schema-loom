@@ -50,7 +50,12 @@ abstract class AbstractDialect implements DatabaseDialect {
 
     @Override
     public List<String> indexSql(String table, TableInfo source) {
-        List<String> sql = new ArrayList<String>();
+        return standardIndexSql(table, source);
+    }
+
+    /** 支持普通的 B-tree/唯一索引语法。 */
+    protected List<String> standardIndexSql(String table, TableInfo source) {
+        List<String> sql = new ArrayList<>();
         for (io.github.nameof.schemaloom.metadata.IndexInfo index : source.getIndexes()) {
             if (index.getName() == null || index.getName().trim().isEmpty() || index.getColumns().isEmpty()) continue;
             StringBuilder statement = new StringBuilder("CREATE ");

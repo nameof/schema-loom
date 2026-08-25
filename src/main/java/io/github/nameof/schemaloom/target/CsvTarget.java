@@ -27,7 +27,7 @@ public final class CsvTarget implements Target {
     }
 
     /** 创建 CSV 输出；REPLACE 先写入 .part，APPEND 先校验已有标题。 */
-    public void prepare(SchemaDescriptor descriptor, TargetMode mode) {
+    public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
         this.schema = descriptor.getSchema();
         try {
             // REPLACE 不直接覆盖旧文件，避免任务失败时破坏原文件。
@@ -49,6 +49,7 @@ public final class CsvTarget implements Target {
                 writer.write(joinHeader());
                 writer.write("\n");
             }
+            return Collections.emptyList();
         } catch (IOException e) {
             throw new SchemaLoomException("cannot prepare CSV target", e);
         }
