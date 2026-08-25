@@ -185,6 +185,16 @@ Source source = new JdbcQuerySource(
     1000);
 ```
 
+需要在界面中预览表数据时，可直接使用 `JdbcTableSource` 的预览读取入口，无需让用户输入 SQL：
+
+```java
+JdbcTableSource tableSource = new JdbcTableSource(sourceDatabase, "source_table");
+List<DataRecord> preview = tableSource.read();       // 默认最多 100 行
+List<DataRecord> sample = tableSource.read(200);      // 允许 1 到 300 行
+```
+
+预览结果不保证稳定顺序；为避免读取 BLOB/BINARY 大字段，二进制列在预览结果中保留但值为 `null`。`read(BatchConsumer)` 仍然读取全表，`count()` 仍然返回全表总行数。预览限制通过 JDBC `setMaxRows` 执行，不提供分页或排序语义。
+
 ### VIEW 支持与任务方式
 
 SchemaLoom 将 VIEW 分为“读取数据”和“迁移视图定义”两种独立场景：

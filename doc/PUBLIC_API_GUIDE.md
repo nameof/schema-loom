@@ -78,7 +78,8 @@ try {
 | --- | --- | --- |
 | `getDatabaseInfo(provider)` | `DatabaseInfo` | 数据库产品、版本、驱动和 JDBC URL |
 | `listCatalogs(provider)` | `List<CatalogInfo>` | 列出 Catalog |
-| `listSchemas(provider)` | `List<SchemaInfo>` | 列出 Schema，结果同时包含 Catalog |
+| `listSchemas(provider)` | `List<SchemaInfo>` | 列出当前连接可见的 Schema，结果同时包含 Catalog |
+| `listSchemas(provider, query)` | `List<SchemaInfo>` | 按 Catalog、Schema 限定采集范围后列出 Schema |
 | `listTables(provider, query)` | `List<TableInfo>` | 按 Catalog、Schema、表名模式筛选表和视图 |
 | `getTable(provider, name)` | `TableInfo` | 获取单个表或视图，不存在时抛 `SchemaLoomException` |
 
@@ -224,41 +225,16 @@ try (LocalTaskExecutor executor = new LocalTaskExecutor(2, 20)) {
 
 调用 `Future.cancel(true)` 后，任务会在批次边界检查中断，并返回 `CANCELLED`。任务结束时会关闭 `Source` 和 `Target`；使用 `JdbcTableSource`/`JdbcTableTarget` 时不要再关闭它们内部的连接，也不要让多个并发任务共享同一个 provider。
 
-### 3.5 用例：仅读取指定表的 1000 条样本
+### 3.5 用例：读取表预览数据
 
-`JdbcTableSource` 会读取整张表；它的 `fetchSize` 只控制每批读取数量，不限制总行数。需要抽样读取时，使用 `JdbcQuerySource` 在 SQL 层限制行数：
+`JdbcTableSource` 提供不暴露 SQL 的预览入口：
 
 ```java
-String sampleSql = "SELECT * FROM orders ORDER BY id LIMIT 1000"; // MySQL
-JdbcQuerySource sampleSource = new JdbcQuerySource(
-    config, sampleSql, Collections.emptyList(), 200, loader);
-MemoryTarget sampleTarget = new MemoryTarget();
-
-EtlResult result = EtlTask.builder()
-    .source(sampleSource)
-    .target(sampleTarget)
-    .targetMode(TargetMode.REPLACE)
-    .errorPolicy(ErrorPolicy.FAIL_FAST)
-    .build()
-    .run();
-
-if (result.getStatus() != EtlStatus.SUCCESS) {
-    throw new IllegalStateException("抽样读取失败: " + result.getErrors());
-}
-if (sampleTarget.getRecords().size() > 1000) {
-    throw new IllegalStateException("抽样结果超过 1000 条");
-}
+JdbcTableSource tableSource = new JdbcTableSource(config, "orders");
+List<DataRecord> sample = tableSource.preview(50); // 允许 1 到 300 行
 ```
 
-不同数据库的行数限制语法不同，示例中的 SQL 需要按数据库类型替换：
-
-| 数据库 | 示例 |
-| --- | --- |
-| MySQL | `SELECT * FROM orders ORDER BY id LIMIT 1000` |
-| Oracle | `SELECT * FROM orders ORDER BY id FETCH FIRST 1000 ROWS ONLY` |
-| SQL Server | `SELECT TOP (1000) * FROM orders ORDER BY id` |
-
-`JdbcQuerySource` 仅允许 `SELECT` 语句；表名和排序字段应来自受信任配置，不能直接拼接外部用户输入。建议使用稳定且有索引的字段排序，否则每次抽样的结果可能变化。若表不足 1000 条，实际结果会少于 1000 条。
+预览结果不保证稳定顺序，数据不足时返回实际行数；为避免读取 BLOB/BINARY 大字段，二进制列在预览结果中保留但值为 `null`。`read(BatchConsumer)` 仍读取全表，`count()` 仍返回全表总数。限制通过 JDBC `setMaxRows` 执行，不支持 offset、分页或排序。若需要筛选、联表或聚合，继续使用参数化 `JdbcQuerySource`。
 
 ## 4. 建议的调用测试清单
 

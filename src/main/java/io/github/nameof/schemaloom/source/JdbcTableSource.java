@@ -19,6 +19,7 @@ import java.util.function.Supplier;
  * 目标不存在则按 VIEW 输出 Schema 创建普通表，目标已存在则按目标模式校验并写入。</p>
  */
 public final class JdbcTableSource implements Source {
+    public static final int MAX_PREVIEW_ROWS = 300;
     private final DatabaseConnectionInfo info;
     private final QualifiedTableName table;
     private final int fetchSize;
@@ -142,6 +143,17 @@ public final class JdbcTableSource implements Source {
             }
             c.accept(new RecordBatch(schema, records));
         });
+    }
+
+    /** 读取指定数量的表预览数据，最多 300 行。 */
+    public List<DataRecord> preview(int maxRows) {
+        if (maxRows < 1 || maxRows > MAX_PREVIEW_ROWS)
+            throw new IllegalArgumentException("preview rows must be between 1 and " + MAX_PREVIEW_ROWS);
+        final RecordSchema schema = ensureSchema();
+        List<DataRecord> records = new ArrayList<DataRecord>();
+        for (DataRecord record : delegate.readRows(maxRows))
+            records.add(new DataRecord(schema, record.getValues()));
+        return records;
     }
 
     public synchronized void close() {

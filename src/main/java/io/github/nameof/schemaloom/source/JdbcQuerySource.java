@@ -15,6 +15,33 @@ public final class JdbcQuerySource implements Source {
     private final int fetchSize;
     private RecordSchema schema;
 
+    /** 受限读取结果集，供表预览复用查询源的类型映射逻辑。 */
+    List<DataRecord> readRows(int maxRows) {
+        RecordSchema sc = recordSchema();
+        try {
+            PreparedStatement s = provider.getConnection().prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+            try {
+                s.setFetchSize(fetchSize);
+                s.setMaxRows(maxRows);
+                bind(s);
+                ResultSet r = s.executeQuery();
+                try {
+                    List<DataRecord> records = new ArrayList<DataRecord>();
+                    while (r.next()) {
+                        records.add(readRecord(r, sc, true));
+                    }
+                    return records;
+                } finally {
+                    r.close();
+                }
+            } finally {
+                s.close();
+            }
+        } catch (SQLException e) {
+            throw new SchemaLoomException("cannot read limited query", e);
+        }
+    }
+
     public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize) {
         this(JdbcConnectionFactory.open(info), sql, params, fetchSize);
     }
@@ -66,6 +93,17 @@ public final class JdbcQuerySource implements Source {
         for (int i = 0; i < params.size(); i++) s.setObject(i + 1, params.get(i));
     }
 
+    /** 预览时不读取二进制字段，避免 BLOB/BINARY 被 JDBC 驱动物化到应用内存。 */
+    private DataRecord readRecord(ResultSet r, RecordSchema sc, boolean skipBinary) throws SQLException {
+        List<Object> v = new ArrayList<Object>();
+        for (int i = 0; i < sc.getFields().size(); i++) {
+            FieldSchema field = sc.getFields().get(i);
+            v.add(skipBinary && field.getLogicalType() == LogicalType.BINARY
+                    ? null : JdbcValueCodec.read(r, i + 1, field));
+        }
+        return new DataRecord(sc, v);
+    }
+
     public void read(BatchConsumer c) {
         RecordSchema sc = recordSchema();
         try {
@@ -77,10 +115,7 @@ public final class JdbcQuerySource implements Source {
                 try {
                     List<DataRecord> b = new ArrayList<DataRecord>();
                     while (r.next()) {
-                        List<Object> v = new ArrayList<Object>();
-                        for (int i = 0; i < sc.getFields().size(); i++)
-                            v.add(JdbcValueCodec.read(r, i + 1, sc.getFields().get(i)));
-                        b.add(new DataRecord(sc, v));
+                        b.add(readRecord(r, sc, false));
                         if (b.size() == fetchSize) {
                             c.accept(new RecordBatch(sc, b));
                             b = new ArrayList<>();
