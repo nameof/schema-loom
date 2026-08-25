@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
 import io.github.nameof.schemaloom.source.JdbcTypes;
 import schemacrawler.schema.*;
+import schemacrawler.schemacrawler.LimitOptionsBuilder;
 import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder;
 import schemacrawler.tools.utility.SchemaCrawlerUtility;
 import us.fatehi.utility.datasource.DatabaseConnectionSource;
@@ -16,14 +17,14 @@ import java.util.regex.Pattern;
 /** SchemaCrawler 到 SchemaLoom 元数据 DTO 的稳定映射门面。 */
 public final class DatabaseMetadataService {
     public DatabaseInfo getDatabaseInfo(ConnectionProvider provider) {
-        Catalog catalog = catalog(provider);
+        Catalog catalog = catalog(provider, null);
         return new DatabaseInfo(catalog.getDatabaseInfo().getDatabaseProductName(), catalog.getDatabaseInfo().getDatabaseProductVersion(),
                 catalog.getJdbcDriverInfo().getDriverName(), catalog.getJdbcDriverInfo().getDriverVersion(), catalog.getJdbcDriverInfo().getConnectionUrl());
     }
 
     public List<CatalogInfo> listCatalogs(ConnectionProvider provider) {
         Set<String> names = new LinkedHashSet<>();
-        for (Schema schema : catalog(provider).getSchemas())
+        for (Schema schema : catalog(provider, null).getSchemas())
             if (schema.getCatalogName() != null)
                 names.add(schema.getCatalogName());
         List<CatalogInfo> out = new ArrayList<>();
@@ -33,15 +34,23 @@ public final class DatabaseMetadataService {
     }
 
     public List<SchemaInfo> listSchemas(ConnectionProvider provider) {
+        return listSchemas(provider, null);
+    }
+
+    /** 按 catalog、schema 范围读取 schema，避免由调用方在全量结果上二次过滤。 */
+    public List<SchemaInfo> listSchemas(ConnectionProvider provider, MetadataQuery query) {
         List<SchemaInfo> out = new ArrayList<SchemaInfo>();
-        for (Schema schema : catalog(provider).getSchemas()) out.add(new SchemaInfo(schema.getCatalogName(), schema.getName()));
+        for (Schema schema : catalog(provider, query).getSchemas()) {
+            if (query == null || matches(query.getCatalog(), schema.getCatalogName()) && matches(query.getSchema(), schema.getName()))
+                out.add(new SchemaInfo(schema.getCatalogName(), schema.getName()));
+        }
         return out;
     }
 
     public List<TableInfo> listTables(ConnectionProvider provider, MetadataQuery query) {
         Pattern pattern = Pattern.compile(query.getTablePattern().replace("%", ".*").replace("_", "."), Pattern.CASE_INSENSITIVE);
         List<TableInfo> out = new ArrayList<TableInfo>();
-        for (Table table : catalog(provider).getTables()) {
+        for (Table table : catalog(provider, query).getTables()) {
             Schema schema = table.getSchema();
             if (!matches(query.getCatalog(), schema.getCatalogName()) || !matches(query.getSchema(), schema.getName()) || !pattern.matcher(table.getName()).matches()) continue;
             out.add(map(table));
@@ -55,13 +64,50 @@ public final class DatabaseMetadataService {
         throw new SchemaLoomException("table not found: " + name.getTable());
     }
 
-    private Catalog catalog(ConnectionProvider provider) {
+    /**
+     * 在 SchemaCrawler 采集阶段限制 schema 和表名；下游仍做精确比较，兼容各驱动对名称的映射差异。
+     */
+    private Catalog catalog(ConnectionProvider provider, MetadataQuery query) {
         try {
             schemacrawler.schemacrawler.SchemaCrawlerOptions options = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions();
+            if (query != null) {
+                LimitOptionsBuilder limits = LimitOptionsBuilder.builder();
+                Pattern schemaPattern = namespacePattern(query.getCatalog(), query.getSchema());
+                if (schemaPattern != null) limits.includeSchemas(schemaPattern);
+                limits.includeTables(sqlPattern(query.getTablePattern()));
+                options = options.withLimitOptions(limits.toOptions());
+            }
             return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
         } catch (Exception e) {
             throw new SchemaLoomException("cannot read database metadata with SchemaCrawler", e);
         }
+    }
+
+    private Pattern namespacePattern(String catalog, String schema) {
+        List<String> names = new ArrayList<String>();
+        if (catalog != null) names.add(Pattern.quote(catalog));
+        if (schema != null && !schema.equalsIgnoreCase(catalog)) names.add(Pattern.quote(schema));
+        return names.isEmpty() ? null : Pattern.compile("^.*(?:" + join(names, "|") + ").*$", Pattern.CASE_INSENSITIVE);
+    }
+
+    private Pattern sqlPattern(String value) {
+        StringBuilder regex = new StringBuilder("^.*");
+        for (int i = 0; i < value.length(); i++) {
+            char character = value.charAt(i);
+            if (character == '%') regex.append(".*");
+            else if (character == '_') regex.append('.');
+            else regex.append(Pattern.quote(String.valueOf(character)));
+        }
+        return Pattern.compile(regex.append(".*$").toString(), Pattern.CASE_INSENSITIVE);
+    }
+
+    private String join(List<String> values, String delimiter) {
+        StringBuilder result = new StringBuilder();
+        for (String value : values) {
+            if (result.length() > 0) result.append(delimiter);
+            result.append(value);
+        }
+        return result.toString();
     }
 
     private DatabaseConnectionSource connectionSource(final ConnectionProvider provider) {

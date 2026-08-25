@@ -67,9 +67,31 @@ public final class FieldMapping {
             }
             indexes.add(new IndexInfo(index.getName(), index.getType(), index.isUnique(), mappedColumns));
         }
-        return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, null,
-                indexes, Collections.emptyList(),
-                Collections.emptyList(), source.getRemarks());
+        PrimaryKeyInfo primaryKey = source.getPrimaryKey() == null ? null
+                : new PrimaryKeyInfo(source.getPrimaryKey().getName(), mapColumns(source.getPrimaryKey().getColumns(), names, "主键"));
+        List<ForeignKeyInfo> foreignKeys = new ArrayList<ForeignKeyInfo>();
+        for (ForeignKeyInfo foreignKey : source.getForeignKeys()) {
+            foreignKeys.add(new ForeignKeyInfo(foreignKey.getName(), foreignKey.getReferencedTable(),
+                    mapColumns(foreignKey.getColumns(), names, "外键"), foreignKey.getReferencedColumns(),
+                    foreignKey.getUpdateRule(), foreignKey.getDeleteRule()));
+        }
+        List<ConstraintInfo> constraints = new ArrayList<ConstraintInfo>();
+        for (ConstraintInfo constraint : source.getConstraints()) {
+            constraints.add(new ConstraintInfo(constraint.getName(), constraint.getType(),
+                    mapColumns(constraint.getColumns(), names, "约束")));
+        }
+        return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, primaryKey,
+                indexes, foreignKeys, constraints, source.getRemarks());
+    }
+
+    private static List<String> mapColumns(List<String> columns, Map<String, String> names, String kind) {
+        List<String> mapped = new ArrayList<String>();
+        for (String column : columns) {
+            String mappedName = names.get(column.toLowerCase(Locale.ENGLISH));
+            if (mappedName == null) throw new IllegalArgumentException(kind + "字段未映射: " + column);
+                mapped.add(mappedName);
+        }
+        return mapped;
     }
 
     /** 按映射顺序提取记录值，构造目标 Schema 对应的新记录。 */
