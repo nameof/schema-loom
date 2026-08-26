@@ -18,13 +18,14 @@ import java.util.function.Supplier;
  * <p>当它作为 VIEW Source 使用时，目标行为由 {@code JdbcTableTarget} 决定：
  * 目标不存在则按 VIEW 输出 Schema 创建普通表，目标已存在则按目标模式校验并写入。</p>
  */
-public final class JdbcTableSource implements Source {
+public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     public static final int MAX_PREVIEW_ROWS = 300;
     private final DatabaseConnectionInfo info;
     private final QualifiedTableName table;
     private final int fetchSize;
     private final Supplier<ConnectionProvider> providerSupplier;
     private final DatabaseDialect dialect;
+    private final LargeFieldPolicy largeFieldPolicy;
     private volatile JdbcQuerySource delegate;
     private volatile RecordSchema tableSchema;
     private volatile TableInfo tableInfo;
@@ -42,7 +43,11 @@ public final class JdbcTableSource implements Source {
      * 不传JdbcDriverLoader，默认方式创建ConnectionProvider
      */
     public JdbcTableSource(DatabaseConnectionInfo info, String table, int fetchSize) {
-        this(info, table, fetchSize, () -> JdbcConnectionFactory.open(info));
+        this(info, table, fetchSize, LargeFieldPolicy.defaults(), () -> JdbcConnectionFactory.open(info));
+    }
+
+    public JdbcTableSource(DatabaseConnectionInfo info, String table, int fetchSize, LargeFieldPolicy policy) {
+        this(info, table, fetchSize, policy, () -> JdbcConnectionFactory.open(info));
     }
 
     /**
@@ -56,7 +61,11 @@ public final class JdbcTableSource implements Source {
      * 自定义JdbcDriverLoader创建ConnectionProvider
      */
     public JdbcTableSource(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader, int fetchSize) {
-        this(info, table, fetchSize, providerSupplier(info, loader));
+        this(info, table, fetchSize, LargeFieldPolicy.defaults(), providerSupplier(info, loader));
+    }
+
+    public JdbcTableSource(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader, int fetchSize, LargeFieldPolicy policy) {
+        this(info, table, fetchSize, policy, providerSupplier(info, loader));
     }
 
     private static Supplier<ConnectionProvider> providerSupplier(DatabaseConnectionInfo info, JdbcDriverLoader loader) {
@@ -68,12 +77,13 @@ public final class JdbcTableSource implements Source {
      * 读取表或视图元数据，并构造带正确标识符引用的 SELECT 查询委托。
      * 视图只作为只读数据源，其输出 Schema 可供 JdbcTableTarget 创建普通目标表。
      */
-    private JdbcTableSource(DatabaseConnectionInfo info, String tableName, int fetchSize,
+    private JdbcTableSource(DatabaseConnectionInfo info, String tableName, int fetchSize, LargeFieldPolicy policy,
                             Supplier<ConnectionProvider> providerSupplier) {
         if (info == null) throw new IllegalArgumentException("database connection info is required");
         this.info = info;
         this.table = info.table(tableName);
         this.fetchSize = fetchSize;
+        this.largeFieldPolicy = policy == null ? LargeFieldPolicy.defaults() : policy;
         this.providerSupplier = providerSupplier;
         this.dialect = new DialectRegistry().get(info.getDatabaseType());
     }
@@ -84,8 +94,9 @@ public final class JdbcTableSource implements Source {
         ConnectionProvider opened = null;
         try {
             opened = providerSupplier.get();
+            // 表 Source 复用查询 Source 的读取、批处理和大字段策略实现。
             delegate = new JdbcQuerySource(opened, "SELECT * FROM " + dialect.quote(table),
-                    Collections.<Object>emptyList(), fetchSize);
+                    Collections.<Object>emptyList(), fetchSize, largeFieldPolicy);
             provider = opened;
             return opened;
         } catch (RuntimeException e) {
@@ -105,8 +116,31 @@ public final class JdbcTableSource implements Source {
     }
 
     private synchronized TableInfo ensureTableInfo() {
-        if (tableInfo == null) tableInfo = new DatabaseMetadataService().getTable(ensureProvider(), table);
+        // 元数据只读取一次，并在返回前应用“策略可能产生 null”的可空性修正。
+        if (tableInfo == null) tableInfo = effectiveTableInfo(new DatabaseMetadataService().getTable(ensureProvider(), table));
         return tableInfo;
+    }
+
+    /** 大字段策略可能产生 null，因此对外 Schema 必须反映这种可空性。 */
+    private TableInfo effectiveTableInfo(TableInfo source) {
+        List<FieldSchema> fields = new ArrayList<FieldSchema>();
+        List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
+        for (ColumnInfo column : source.getColumns()) {
+            // 结构列和数据 Schema 同步调整，确保建表和写入看到一致的 nullable 定义。
+            boolean nullable = column.isNullable() || largeFieldPolicy.canReturnNull(column.getName(), jdbcType(column.getLogicalType()), column.getTypeName());
+            fields.add(new FieldSchema(column.getName(), column.getLogicalType(), nullable, column.getLength(),
+                    column.getPrecision(), column.getScale()));
+            columns.add(new ColumnInfo(column.getName(), column.getTypeName(), column.getRemarks(), column.getLogicalType(),
+                    column.getOrdinal(), nullable, column.getLength(), column.getPrecision(), column.getScale(),
+                    column.getDefaultValue(), column.getGeneratedExpression(), column.isAutoIncremented(), column.isGenerated()));
+        }
+        RecordSchema schema = new RecordSchema(fields, source.getSchema().getPrimaryKeyFields());
+        return new TableInfo(source.getName(), source.isView(), source.getType(), schema, columns, source.getPrimaryKey(),
+                source.getIndexes(), source.getForeignKeys(), source.getConstraints(), source.getRemarks());
+    }
+
+    private static int jdbcType(LogicalType type) {
+        return LogicalTypeCatalog.get(type).jdbcSqlType();
     }
 
     public SchemaDescriptor schema() {
@@ -137,6 +171,7 @@ public final class JdbcTableSource implements Source {
         final RecordSchema schema = ensureSchema();
         delegate.read(batch -> {
             List<DataRecord> records = new ArrayList<DataRecord>(batch.size());
+            // 委托使用查询 Schema；这里换回表元数据生成的正式 Schema，保持引用一致性。
             // 委托返回的记录可能携带不同的 Schema，这里统一替换为表的正式 Schema。
             for (DataRecord record : batch.getRecords()) {
                 records.add(new DataRecord(schema, record.getValues()));
@@ -159,5 +194,10 @@ public final class JdbcTableSource implements Source {
     public synchronized void close() {
         closed = true;
         if (provider != null) provider.close();
+    }
+
+    public ReadStatistics getReadStatistics() {
+        // 统计实际读取委托；尚未打开连接时返回空快照。
+        return delegate == null ? ReadStatistics.empty() : delegate.getReadStatistics();
     }
 }

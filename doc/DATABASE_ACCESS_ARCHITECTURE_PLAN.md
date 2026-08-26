@@ -96,6 +96,18 @@ JDBC 仍作为连接、驱动加载、语句执行和动态查询结果元数据
 - `BLOB` 和 `CLOB` 不得默认无界地加载到内存；执行层支持可配置的跳过、受限物化或流式复制。
 - `DatabaseDialect` 选择厂商特有 JDBC 绑定/读取策略，执行层负责实际读写。
 
+当前实现将策略配置限定在 JDBC Source：`JdbcTableSource` 与 `JdbcQuerySource` 通过
+`LargeFieldPolicy` 决定值是否读取。`BLOB` 默认跳过，`CLOB`、`TEXT`、`LONGTEXT` 默认复制；
+跳过字段保持在 Schema 中并以 `null` 输出；按字段规则优先于原生类型规则。可为文本和二进制值设置
+阈值，超限值同样以 `null` 输出。策略可能输出 `null` 的字段在 Source Schema 中标记为
+可空，确保新建目标表可写入；追加到既有非空列时由目标兼容校验拒绝。
+
+`STREAM` 需要在 `ResultSet` 生命周期内直接绑定到 JDBC Target，不能通过当前会在批次间
+传递的 `DataRecord` 伪造实现，保留为后续内部执行层改造项。
+
+任务统计采用通用 `ReadStatistics`、`WriteStatistics` 与对应 Provider 接口。`EtlTask`
+只收集这些统计，不感知 BLOB/CLOB 等具体策略；`EtlResult` 暴露两个阶段统计和整行跳过总数。
+
 ## 实施顺序
 
 1. 使用 SchemaCrawler 读取器和 DTO 映射器替换 `DatabaseMetadataService` 内部实现，保持现有公共 API。

@@ -552,8 +552,6 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 
 ## 核心功能&BUG TODO
-- BLOB等二进制字段：直接跳过；或流式读写，用户可选择忽略（默认）这种字段
-- TEXT/LONGTEXT ：用户可选择忽略
 - CSV 配置：自定义quote、escape
 - 日志输出
 - 代码审计：所有逻辑均正确关闭已打开资源
@@ -567,6 +565,9 @@ mvn -Dtest=JdbcEtlIntegrationTest test
   - 数据预览: previewData(Connection, schemaName, tableName, limit)，输出DataPreviewResult (columns: List<ColumnInfo>, rows: List<Map<String,Object>>)
   - 表数据量统计：getTableStatistics(Connection, schemaName, tableName)，输出TableStatistics (rowCount, dataLength, indexLength, avgRowLength)
   - Schema统计：getSchemaStatistics(Connection, schemaName)，输出SchemaStatistics (totalTables, totalRows, totalDataLength)
+
+- 大字段深入：已支持 BLOB 默认跳过、CLOB/TEXT/LONGTEXT 默认复制、按字段或类型跳过，以及文本/二进制阈值置空；
+  - 未完成工作例如STREAM，参考doc/LARGE_FIELD_PROCESSING_STATUS.md
 
 ## 低优先级TODO
 - 数据冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）

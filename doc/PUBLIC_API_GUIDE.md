@@ -157,7 +157,28 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 
 `JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。
 
-### 3.2 转换和字段映射
+### 3.2 JDBC 大字段策略
+
+大字段策略只配置在 JDBC Source，`Target` 和 `EtlTask` 无需判断数据库大字段类型。默认跳过
+`BLOB`，而 `CLOB`、`TEXT`、`LONGTEXT` 默认复制；被跳过字段仍保留在 Schema 中，读取值为
+`null`，目标表也保留该列。
+
+```java
+LargeFieldPolicy policy = LargeFieldPolicy.builder()
+    .typeName("LONGTEXT", LargeFieldPolicy.Action.SKIP)
+    .field("attachment", LargeFieldPolicy.Action.SKIP)
+    .maxTextChars(1024 * 1024)
+    .maxBinaryBytes(8L * 1024 * 1024)
+    .build();
+
+JdbcTableSource source = new JdbcTableSource(config, "source_table", loader, 1000, policy);
+```
+
+字段规则优先于 JDBC 类型和原生类型规则。超过文本或二进制阈值的值会写为 `null`，并记入读取统计。
+策略可能产生 `null` 的字段会作为可空字段传给目标；若追加目标的对应列为 `NOT NULL`，准备阶段会失败。
+当前支持 `COPY`、`SKIP`；真正的 JDBC 流式复制需要保持 ResultSet 与目标绑定的同一生命周期，尚未开放。
+
+### 3.3 转换和字段映射
 
 ```java
 EtlTask task = EtlTask.builder()
@@ -175,7 +196,7 @@ EtlTask task = EtlTask.builder()
 
 映射列表为空时保留全部源字段及原顺序；提供映射后，映射列表决定目标字段集合和顺序。映射目标字段不能重复，源字段必须存在，否则构建或运行阶段抛出异常。
 
-### 3.3 结果和错误处理
+### 3.4 结果和错误处理
 
 `EtlResult` 主要字段如下：
 
@@ -189,6 +210,9 @@ EtlTask task = EtlTask.builder()
 | `getFailed()` | 失败记录数 |
 | `getElapsedMillis()` | 执行耗时 |
 | `getErrors()` | 最多 100 条错误摘要 |
+| `getReadStatistics()` | 读取行数、读取阶段跳过行数和按字段跳过计数 |
+| `getWriteStatistics()` | 写入行数、写入阶段跳过行数、失败行数和按字段跳过计数 |
+| `getTotalSkippedRows()` | 读取与写入阶段明确跳过整行的总数，不含仅置空字段 |
 
 状态判断必须使用 `getStatus()`，不能只根据 `getWritten()` 判断成功。`EtlError` 提供错误行号、阶段、异常类型和消息；消息会截断到 500 个字符，并对常见密码参数做脱敏。
 
@@ -198,7 +222,7 @@ EtlTask task = EtlTask.builder()
 - `SKIP_BATCH`：跳过当前批次并继续后续批次。
 - `ISOLATE_AND_CONTINUE`：批量写入失败时回退到逐行写入，尽可能继续处理。
 
-### 3.4 进度监听和异步执行
+### 3.5 进度监听和异步执行
 
 监听器回调在任务线程同步执行：
 
@@ -225,7 +249,7 @@ try (LocalTaskExecutor executor = new LocalTaskExecutor(2, 20)) {
 
 调用 `Future.cancel(true)` 后，任务会在批次边界检查中断，并返回 `CANCELLED`。任务结束时会关闭 `Source` 和 `Target`；使用 `JdbcTableSource`/`JdbcTableTarget` 时不要再关闭它们内部的连接，也不要让多个并发任务共享同一个 provider。
 
-### 3.5 用例：读取表预览数据
+### 3.6 用例：读取表预览数据
 
 `JdbcTableSource` 提供不暴露 SQL 的预览入口：
 

@@ -144,7 +144,14 @@ public final class EtlTask implements Callable<EtlResult> {
             }
         }
         Instant ended = Instant.now();
-        EtlResult result = new EtlResult(status, read, transformed, filtered, written, failed, start, ended, errors);
+        ReadStatistics readStatistics = source instanceof ReadStatisticsProvider
+                ? ((ReadStatisticsProvider) source).getReadStatistics()
+                : new ReadStatistics(read, 0, Collections.<String, Long>emptyMap());
+        WriteStatistics writeStatistics = target instanceof WriteStatisticsProvider
+                ? ((WriteStatisticsProvider) target).getWriteStatistics()
+                : new WriteStatistics(written, 0, failed, Collections.<String, Long>emptyMap());
+        EtlResult result = new EtlResult(status, read, transformed, filtered, written, failed, start, ended, errors,
+                readStatistics, writeStatistics);
         notifyCompleted(result);
         return result;
     }

@@ -186,13 +186,12 @@ public class EtlTaskTest {
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         EtlResult result = EtlTask.builder()
                 .source(new JdbcTableSource(sourceConfig, "jsh_account"))
-                .target(new JdbcTableTarget(targetConfig, "ssb"))
+                .target(new JdbcTableTarget(targetConfig, "sssb"))
                 .targetMode(TargetMode.APPEND)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);
         assertTrue(result.getWritten() > 0);
         verifyMysqlComments(sourceConfig, targetConfig);
-
     }
 
     private void verifyMysqlComments(DatabaseConnectionInfo sourceConfig, DatabaseConnectionInfo targetConfig) throws Exception {

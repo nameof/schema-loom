@@ -20,7 +20,7 @@ import java.util.*;
  * <p>VIEW：只能作为数据只读来源，不能作为 Target 的写入对象。若Target对象已经是 VIEW，准备阶段会失败；
  * 需要在目标库创建 VIEW 定义时，应使用独立的 {@code JdbcViewMigrationTask}，而不是把 VIEW 当普通表写入数据。</p>
  */
-public final class JdbcTableTarget implements Target {
+public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private final ConnectionProvider provider;
     private final QualifiedTableName table;
     private final DatabaseDialect dialect;
@@ -28,6 +28,7 @@ public final class JdbcTableTarget implements Target {
     private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
     private RecordSchema schema;
     private boolean prepared;
+    private long writtenRows;
 
     JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type) {
         this(p, table, type, MetadataErrorPolicy.IGNORE);
@@ -163,6 +164,7 @@ public final class JdbcTableTarget implements Target {
                 }
                 ps.executeBatch();
                 c.commit();
+                incrementWrittenRows(b.size());
                 return new BatchWriteResult(b.size(), 0);
             } catch (SQLException e) {
                 try {
@@ -186,6 +188,12 @@ public final class JdbcTableTarget implements Target {
     public void close() {
         provider.close();
     }
+
+    public synchronized WriteStatistics getWriteStatistics() {
+        return new WriteStatistics(writtenRows, 0, 0, Collections.<String, Long>emptyMap());
+    }
+
+    private synchronized void incrementWrittenRows(long count) { writtenRows += count; }
 
     /**
      * 校验已存在的目标表是否可以安全接收源 Schema。
