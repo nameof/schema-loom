@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.TableInfo;
+import io.github.nameof.schemaloom.metadata.IndexInfo;
 
 import java.util.*;
 
@@ -25,8 +26,9 @@ public interface DatabaseDialect {
 
     /** 根据源表元数据生成 CREATE TABLE SQL，包括可安全迁移的默认值。 */
     String createTableSql(String table, TableInfo source);
+    String createTableSql(String table, RecordSchema source);
     List<String> commentSql(String table, TableInfo source);
-    List<String> indexSql(String table, TableInfo source);
+    List<String> indexSql(String table, List<IndexInfo> indexes);
 
     /**
      * 根据已引用的表名生成 DROP TABLE SQL。

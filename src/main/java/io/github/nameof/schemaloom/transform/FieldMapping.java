@@ -42,7 +42,7 @@ public final class FieldMapping {
     }
 
     /** 映射源表元数据及其 Schema */
-    public static TableInfo mapTableInfo(TableInfo source, RecordSchema target, List<FieldMapping> mappings) {
+    public static TableInfo mapTableInfo(TableInfo source, List<FieldMapping> mappings) {
         List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source.getSchema()) : mappings;
         Map<String, ColumnInfo> columns = new HashMap<String, ColumnInfo>();
         for (ColumnInfo column : source.getColumns())
@@ -51,8 +51,10 @@ public final class FieldMapping {
         for (FieldMapping mapping : ms) {
             ColumnInfo column = columns.get(mapping.source.toLowerCase(Locale.ENGLISH));
             if (column == null) continue;
-            mapped.add(new ColumnInfo(mapping.target, column.getTypeName(), column.getRemarks(), column.getLogicalType(),
-                    column.getOrdinal(), column.isNullable(), column.getLength(), column.getPrecision(), column.getScale(),
+            FieldSchema mappedField = new FieldSchema(mapping.target, column.getLogicalType(), column.isNullable(),
+                    column.getLength(), column.getPrecision(), column.getScale());
+            mapped.add(new ColumnInfo(mappedField, column.getTypeName(), column.getRemarks(),
+                    column.getOrdinal(),
                     column.getDefaultValue(), column.getGeneratedExpression(), column.isAutoIncremented(), column.isGenerated()));
         }
         Map<String, String> names = new HashMap<String, String>();
@@ -80,7 +82,7 @@ public final class FieldMapping {
             constraints.add(new ConstraintInfo(constraint.getName(), constraint.getType(),
                     mapColumns(constraint.getColumns(), names, "约束")));
         }
-        return new TableInfo(source.getName(), source.isView(), source.getType(), target, mapped, primaryKey,
+        return new TableInfo(source.getName(), source.isView(), source.getType(), mapped, primaryKey,
                 indexes, foreignKeys, constraints, source.getRemarks());
     }
 

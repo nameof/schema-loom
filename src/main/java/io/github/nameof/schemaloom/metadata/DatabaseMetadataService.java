@@ -159,7 +159,6 @@ public final class DatabaseMetadataService {
     private TableInfo map(Table table) {
         QualifiedTableName name = name(table);
         List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
-        List<FieldSchema> fields = new ArrayList<FieldSchema>();
         for (Column column : table.getColumns()) {
             Integer typeNumber = column.getColumnDataType().getJavaSqlType().getVendorTypeNumber();
             LogicalType logicalType = JdbcTypes.logical(typeNumber == null ? java.sql.Types.VARCHAR : typeNumber);
@@ -168,16 +167,15 @@ public final class DatabaseMetadataService {
             Integer precision = logicalType == LogicalType.DECIMAL ? size : null;
             Integer scale = logicalType == LogicalType.DECIMAL ? column.getDecimalDigits() : null;
             String value = column.getDefaultValue();
-            ColumnInfo info = new ColumnInfo(column.getName(), column.getColumnDataType().getDatabaseSpecificTypeName(), column.getRemarks(),
-                    logicalType, column.getOrdinalPosition(), column.isNullable(), length, precision, scale,
+            FieldSchema field = new FieldSchema(column.getName(), logicalType, column.isNullable(), length, precision, scale);
+            ColumnInfo info = new ColumnInfo(field, column.getColumnDataType().getDatabaseSpecificTypeName(), column.getRemarks(),
+                    column.getOrdinalPosition(),
                     column.isGenerated() ? null : value, column.isGenerated() ? value : null,
                     column.isAutoIncremented(), column.isGenerated());
             columns.add(info);
-            fields.add(new FieldSchema(info.getName(), info.getLogicalType(), info.isNullable(), info.getLength(), info.getPrecision(), info.getScale()));
         }
         PrimaryKeyInfo primaryKey = primaryKey(table);
-        List<String> keyColumns = primaryKey == null ? Collections.emptyList() : primaryKey.getColumns();
-        return new TableInfo(name, table.getTableType().isView(), table.getTableType().getTableType(), new RecordSchema(fields, keyColumns), columns,
+        return new TableInfo(name, table.getTableType().isView(), table.getTableType().getTableType(), columns,
                 primaryKey, indexes(table), foreignKeys(table), constraints(table), table.getRemarks());
     }
 

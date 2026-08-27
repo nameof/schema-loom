@@ -56,8 +56,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
         if (descriptor == null) throw new IllegalArgumentException("schema descriptor is required");
         schema = descriptor.getSchema();
-        TableInfo tableMetadata = descriptor.getTableInfo() == null
-                ? new TableInfo(table, false, schema) : descriptor.getTableInfo();
+        TableInfo tableMetadata = descriptor.getTableInfo();
         validateCapabilities(schema);
         Connection c = provider.getConnection();
         try {
@@ -73,12 +72,15 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 exists = false;
             }
             if (!exists) {
-                c.createStatement().executeUpdate(dialect.createTableSql(q, tableMetadata));
-                executeMetadataSql(c, dialect.commentSql(q, tableMetadata), "注释");
-                executeMetadataSql(c, dialect.indexSql(q, tableMetadata), "索引");
+                c.createStatement().executeUpdate(tableMetadata == null
+                        ? dialect.createTableSql(q, schema) : dialect.createTableSql(q, tableMetadata));
+                if (tableMetadata != null) {
+                    executeMetadataSql(c, dialect.commentSql(q, tableMetadata), "注释");
+                    executeMetadataSql(c, dialect.indexSql(q, tableMetadata.getIndexes()), "索引");
+                }
             } else {
                 validateAppend(existingTable, schema);
-                migrateIndexes(c, q, tableMetadata, existingTable);
+                if (tableMetadata != null) migrateIndexes(c, q, tableMetadata, existingTable);
             }
             prepared = true;
             List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
@@ -109,8 +111,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     private String indexSql(IndexInfo index, String tableName) {
-        return dialect.indexSql(tableName, new TableInfo(table, false, schema, Collections.<ColumnInfo>emptyList(), null,
-                Collections.singletonList(index), null)).get(0);
+        return dialect.indexSql(tableName, Collections.singletonList(index)).get(0);
     }
 
     private boolean sameDefinition(IndexInfo a, IndexInfo b) {

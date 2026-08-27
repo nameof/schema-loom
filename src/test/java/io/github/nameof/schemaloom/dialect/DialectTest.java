@@ -5,6 +5,7 @@ import io.github.nameof.schemaloom.driver.DatabaseType;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.ColumnInfo;
 import io.github.nameof.schemaloom.metadata.TableInfo;
+import io.github.nameof.schemaloom.metadata.PrimaryKeyInfo;
 
 import java.util.*;
 
@@ -56,8 +57,7 @@ public class DialectTest {
     public void migratesSafeDefaultsAndDialectAliases() {
         FieldSchema created = new FieldSchema("created", LogicalType.TIMESTAMP, true, null, null, null);
         FieldSchema active = new FieldSchema("active", LogicalType.BOOLEAN, false, null, null, null);
-        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
-                new RecordSchema(Arrays.asList(created, active)), Arrays.asList(
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE", Arrays.asList(
                 new ColumnInfo("created", "TIMESTAMP", null, LogicalType.TIMESTAMP, 1, true, null, null, null, "SYSDATE", null, false, false),
                 new ColumnInfo("active", "BOOLEAN", null, LogicalType.BOOLEAN, 2, false, null, null, null, "TRUE", null, false, false)),
                 null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
@@ -73,7 +73,6 @@ public class DialectTest {
         ColumnInfo column = new ColumnInfo("x", "INT", null, LogicalType.INT32, 1, true, null, null, null,
                 "other_column", null, false, false);
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
-                new RecordSchema(Collections.singletonList(FieldSchema.of("x", LogicalType.INT32))),
                 Collections.singletonList(column), null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
@@ -85,7 +84,6 @@ public class DialectTest {
         ColumnInfo column = new ColumnInfo("remark", "VARCHAR", null, LogicalType.STRING, 1, true, 32, null, null,
                 "remarksssss", null, false, false);
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
-                new RecordSchema(Collections.singletonList(new FieldSchema("remark", LogicalType.STRING, true, 32, null, null))),
                 Collections.singletonList(column), null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
@@ -102,7 +100,7 @@ public class DialectTest {
                 new ColumnInfo("id", "INT", null, LogicalType.INT32, 1, false, null, null, null, null, null, true, false),
                 new ColumnInfo("total", "INT", null, LogicalType.INT32, 2, true, null, null, null, null, "(id + 1)", false, true));
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
-                new RecordSchema(fields, Collections.singletonList("id")), columns, null,
+                columns, new PrimaryKeyInfo(null, Collections.singletonList("id")),
                 Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
@@ -118,10 +116,12 @@ public class DialectTest {
         List<io.github.nameof.schemaloom.metadata.IndexInfo> indexes = Arrays.asList(
                 new io.github.nameof.schemaloom.metadata.IndexInfo("ix_normal", false, Arrays.asList("last_name", "first_name")),
                 new io.github.nameof.schemaloom.metadata.IndexInfo("ux_email", true, Collections.singletonList("email")));
-        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false,
-                new RecordSchema(Arrays.asList(FieldSchema.of("last_name", LogicalType.STRING), FieldSchema.of("first_name", LogicalType.STRING), FieldSchema.of("email", LogicalType.STRING))),
-                Collections.<ColumnInfo>emptyList(), null, indexes, null);
-        List<String> sql = new DialectRegistry().get(DatabaseType.MYSQL).indexSql("`t`", source);
+        List<ColumnInfo> columns = Arrays.asList(
+                new ColumnInfo("last_name", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null),
+                new ColumnInfo("first_name", "VARCHAR", null, LogicalType.STRING, 2, true, null, null, null),
+                new ColumnInfo("email", "VARCHAR", null, LogicalType.STRING, 3, true, null, null, null));
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, columns, null, indexes, null);
+        List<String> sql = new DialectRegistry().get(DatabaseType.MYSQL).indexSql("`t`", indexes);
         assertTrue(sql.get(0).contains("INDEX `ix_normal` ON `t` (`last_name`, `first_name`)") );
         assertTrue(sql.get(1).contains("UNIQUE INDEX `ux_email`") );
     }

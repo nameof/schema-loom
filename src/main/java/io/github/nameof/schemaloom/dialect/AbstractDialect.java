@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.ColumnInfo;
 import io.github.nameof.schemaloom.metadata.TableInfo;
+import io.github.nameof.schemaloom.metadata.IndexInfo;
 
 import java.util.*;
 
@@ -35,6 +36,12 @@ abstract class AbstractDialect implements DatabaseDialect {
         return renderCreateTableSql(table, source.getSchema(), columns);
     }
 
+    @Override
+    public String createTableSql(String table, RecordSchema source) {
+        if (source == null) throw new IllegalArgumentException("record schema is required");
+        return renderCreateTableSql(table, source, null);
+    }
+
     /**
      * Shared by Oracle, PostgreSQL, H2 and other databases supporting
      * the standard COMMENT ON TABLE/COLUMN syntax.
@@ -49,14 +56,14 @@ abstract class AbstractDialect implements DatabaseDialect {
     }
 
     @Override
-    public List<String> indexSql(String table, TableInfo source) {
-        return standardIndexSql(table, source);
+    public List<String> indexSql(String table, List<IndexInfo> indexes) {
+        return standardIndexSql(table, indexes);
     }
 
     /** 支持普通的 B-tree/唯一索引语法。 */
-    protected List<String> standardIndexSql(String table, TableInfo source) {
+    private List<String> standardIndexSql(String table, List<IndexInfo> indexes) {
         List<String> sql = new ArrayList<>();
-        for (io.github.nameof.schemaloom.metadata.IndexInfo index : source.getIndexes()) {
+        for (IndexInfo index : indexes) {
             if (index.getName() == null || index.getName().trim().isEmpty() || index.getColumns().isEmpty()) continue;
             StringBuilder statement = new StringBuilder("CREATE ");
             if (index.isUnique()) statement.append("UNIQUE ");

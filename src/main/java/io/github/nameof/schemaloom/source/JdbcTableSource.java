@@ -123,19 +123,17 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
 
     /** 大字段策略可能产生 null，因此对外 Schema 必须反映这种可空性。 */
     private TableInfo effectiveTableInfo(TableInfo source) {
-        List<FieldSchema> fields = new ArrayList<FieldSchema>();
         List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
         for (ColumnInfo column : source.getColumns()) {
             // 结构列和数据 Schema 同步调整，确保建表和写入看到一致的 nullable 定义。
             boolean nullable = column.isNullable() || largeFieldPolicy.canReturnNull(column.getName(), jdbcType(column.getLogicalType()), column.getTypeName());
-            fields.add(new FieldSchema(column.getName(), column.getLogicalType(), nullable, column.getLength(),
-                    column.getPrecision(), column.getScale()));
-            columns.add(new ColumnInfo(column.getName(), column.getTypeName(), column.getRemarks(), column.getLogicalType(),
-                    column.getOrdinal(), nullable, column.getLength(), column.getPrecision(), column.getScale(),
+            FieldSchema field = new FieldSchema(column.getName(), column.getLogicalType(), nullable, column.getLength(),
+                    column.getPrecision(), column.getScale());
+            columns.add(new ColumnInfo(field, column.getTypeName(), column.getRemarks(),
+                    column.getOrdinal(),
                     column.getDefaultValue(), column.getGeneratedExpression(), column.isAutoIncremented(), column.isGenerated()));
         }
-        RecordSchema schema = new RecordSchema(fields, source.getSchema().getPrimaryKeyFields());
-        return new TableInfo(source.getName(), source.isView(), source.getType(), schema, columns, source.getPrimaryKey(),
+        return new TableInfo(source.getName(), source.isView(), source.getType(), columns, source.getPrimaryKey(),
                 source.getIndexes(), source.getForeignKeys(), source.getConstraints(), source.getRemarks());
     }
 

@@ -13,8 +13,6 @@ public class FieldMappingTest {
     public void preservesAndMapsStructuralMetadata() {
         QualifiedTableName referenced = new QualifiedTableName(null, "APP", "CUSTOMERS");
         TableInfo source = new TableInfo(new QualifiedTableName(null, "APP", "ORDERS"), false, "TABLE",
-                new RecordSchema(Arrays.asList(FieldSchema.of("id", LogicalType.INT32), FieldSchema.of("customer_id", LogicalType.INT32)),
-                        Collections.singletonList("id")),
                 Arrays.asList(
                         new ColumnInfo("id", "INT", null, LogicalType.INT32, 1, false, null, null, null, null, null, false, false),
                         new ColumnInfo("customer_id", "INT", null, LogicalType.INT32, 2, false, null, null, null, null, null, false, false)),
@@ -25,7 +23,7 @@ public class FieldMappingTest {
                 Collections.singletonList(new ConstraintInfo("ck_customer", "CHECK", Collections.singletonList("customer_id"))),
                 "orders");
 
-        TableInfo mapped = FieldMapping.mapTableInfo(source, mappedSchema(), Arrays.asList(
+        TableInfo mapped = FieldMapping.mapTableInfo(source, Arrays.asList(
                 new FieldMapping("id", "order_id"), new FieldMapping("customer_id", "buyer_id")));
 
         assertEquals(Collections.singletonList("order_id"), mapped.getPrimaryKey().getColumns());
@@ -38,16 +36,22 @@ public class FieldMappingTest {
     @Test(expected = IllegalArgumentException.class)
     public void rejectsForeignKeyWithUnmappedLocalColumn() {
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "orders"), false, "TABLE",
-                new RecordSchema(Collections.singletonList(FieldSchema.of("customer_id", LogicalType.INT32))),
-                Collections.<ColumnInfo>emptyList(), null, Collections.<IndexInfo>emptyList(),
+                Collections.singletonList(new ColumnInfo("customer_id", "INT", null, LogicalType.INT32, 1, true, null, null, null)), null, Collections.<IndexInfo>emptyList(),
                 Collections.singletonList(new ForeignKeyInfo("fk", new QualifiedTableName(null, null, "customers"),
                         Collections.singletonList("customer_id"), Collections.singletonList("id"), null, null)),
                 Collections.<ConstraintInfo>emptyList(), null);
-        FieldMapping.mapTableInfo(source, mappedSchema(), Collections.singletonList(new FieldMapping("other", "x")));
+        FieldMapping.mapTableInfo(source, Collections.singletonList(new FieldMapping("other", "x")));
     }
 
-    private RecordSchema mappedSchema() {
-        return new RecordSchema(Arrays.asList(FieldSchema.of("order_id", LogicalType.INT32), FieldSchema.of("buyer_id", LogicalType.INT32)),
-                Collections.singletonList("order_id"));
+    @Test
+    public void derivesRecordSchemaFromColumns() {
+        new TableInfo(new QualifiedTableName(null, null, "orders"), false, "TABLE",
+                Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null)),
+                null, Collections.<IndexInfo>emptyList(), Collections.<ForeignKeyInfo>emptyList(),
+                Collections.<ConstraintInfo>emptyList(), null);
+        assertEquals(LogicalType.STRING, new TableInfo(new QualifiedTableName(null, null, "orders"), false,
+                Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null)),
+                null, Collections.<IndexInfo>emptyList(), null).getSchema().field("id").getLogicalType());
     }
+
 }
