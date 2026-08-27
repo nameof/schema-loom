@@ -82,6 +82,8 @@ try {
 | `listSchemas(provider, query)` | `List<SchemaInfo>` | 按 Catalog、Schema 限定采集范围后列出 Schema |
 | `listTables(provider, query)` | `List<TableInfo>` | 按 Catalog、Schema、表名模式筛选表和视图 |
 | `getTable(provider, name)` | `TableInfo` | 获取单个表或视图，不存在时抛 `SchemaLoomException` |
+| `getTableStatistics(provider, name)` | `TableStatistics` | 读取单表系统统计，不执行 `COUNT(*)` |
+| `getSchemaStatistics(provider, schema)` | `SchemaStatistics` | 读取 Schema 普通表聚合统计 |
 
 ### 2.2 元数据查询示例
 
@@ -106,6 +108,8 @@ for (ColumnInfo column : orders.getColumns()) {
 ```
 
 `MetadataQuery` 的表名模式默认是 `%`；当前实现按大小写不敏感方式匹配，并将 `%` 视为任意字符、`_` 视为单个字符。`TableInfo` 还提供 `getPrimaryKey()`、`getForeignKeys()`、`getIndexes()`、`getConstraints()`、`getRemarks()` 和 `isView()` 等结构信息。
+
+统计 API 使用数据库系统目录，行数可能是近似值或依赖最近一次统计；长度单位为字节，Schema 的总数据长度不包含索引。统计字段缺失时返回 `0`，原因可能是真实值为零、统计尚未收集、存储引擎不提供或当前账号没有对应系统视图权限。
 
 ### 2.3 生命周期和异常
 

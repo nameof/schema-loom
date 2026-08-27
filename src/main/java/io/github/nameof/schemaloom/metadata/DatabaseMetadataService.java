@@ -5,7 +5,9 @@ import io.github.nameof.schemaloom.driver.ConnectionProvider;
 import io.github.nameof.schemaloom.source.JdbcTypes;
 import schemacrawler.schema.*;
 import schemacrawler.schemacrawler.LimitOptionsBuilder;
+import schemacrawler.schemacrawler.LoadOptionsBuilder;
 import schemacrawler.schemacrawler.SchemaCrawlerOptionsBuilder;
+import schemacrawler.schemacrawler.SchemaInfoLevelBuilder;
 import schemacrawler.tools.utility.SchemaCrawlerUtility;
 import us.fatehi.utility.datasource.DatabaseConnectionSource;
 
@@ -17,7 +19,7 @@ import java.util.regex.Pattern;
 /** SchemaCrawler 到 SchemaLoom 元数据 DTO 的稳定映射门面。 */
 public final class DatabaseMetadataService {
     public DatabaseInfo getDatabaseInfo(ConnectionProvider provider) {
-        Catalog catalog = catalog(provider, null);
+        Catalog catalog = catalog(provider, null, false);
         return new DatabaseInfo(catalog.getDatabaseInfo().getDatabaseProductName(), catalog.getDatabaseInfo().getDatabaseProductVersion(),
                 catalog.getJdbcDriverInfo().getDriverName(), catalog.getJdbcDriverInfo().getDriverVersion(), catalog.getJdbcDriverInfo().getConnectionUrl());
     }
@@ -40,7 +42,7 @@ public final class DatabaseMetadataService {
     /** 按 catalog、schema 范围读取 schema，避免由调用方在全量结果上二次过滤。 */
     public List<SchemaInfo> listSchemas(ConnectionProvider provider, MetadataQuery query) {
         List<SchemaInfo> out = new ArrayList<SchemaInfo>();
-        for (Schema schema : catalog(provider, query).getSchemas()) {
+        for (Schema schema : catalog(provider, query, false).getSchemas()) {
             if (query == null || matches(query.getCatalog(), schema.getCatalogName()) && matches(query.getSchema(), schema.getName()))
                 out.add(new SchemaInfo(schema.getCatalogName(), schema.getName()));
         }
@@ -50,7 +52,7 @@ public final class DatabaseMetadataService {
     public List<TableInfo> listTables(ConnectionProvider provider, MetadataQuery query) {
         Pattern pattern = Pattern.compile(query.getTablePattern().replace("%", ".*").replace("_", "."), Pattern.CASE_INSENSITIVE);
         List<TableInfo> out = new ArrayList<TableInfo>();
-        for (Table table : catalog(provider, query).getTables()) {
+        for (Table table : catalog(provider, query, true).getTables()) {
             Schema schema = table.getSchema();
             if (!matches(query.getCatalog(), schema.getCatalogName()) || !matches(query.getSchema(), schema.getName()) || !pattern.matcher(table.getName()).matches()) continue;
             out.add(map(table));
@@ -64,18 +66,44 @@ public final class DatabaseMetadataService {
         throw new SchemaLoomException("table not found: " + name.getTable());
     }
 
+    /** 读取单表系统统计；不执行 COUNT(*)，行数可能是数据库估算值。 */
+    public TableStatistics getTableStatistics(ConnectionProvider provider, QualifiedTableName name) {
+        if (provider == null || name == null) throw new IllegalArgumentException("连接和表名不能为空");
+        try { return new JdbcDatabaseStatisticsReader(provider).table(name); }
+        catch (SchemaLoomException e) { throw e; }
+        catch (Exception e) { throw new SchemaLoomException("cannot read table statistics", e); }
+    }
+
+    /** 读取 Schema 系统统计；只统计普通表，长度单位为字节。 */
+    public SchemaStatistics getSchemaStatistics(ConnectionProvider provider, SchemaInfo name) {
+        if (provider == null || name == null) throw new IllegalArgumentException("连接和 Schema 不能为空");
+        try { return new JdbcDatabaseStatisticsReader(provider).schema(name); }
+        catch (SchemaLoomException e) { throw e; }
+        catch (Exception e) { throw new SchemaLoomException("cannot read schema statistics", e); }
+    }
+
     /**
      * 在 SchemaCrawler 采集阶段限制 schema 和表名；下游仍做精确比较，兼容各驱动对名称的映射差异。
      */
     private Catalog catalog(ConnectionProvider provider, MetadataQuery query) {
+        return catalog(provider, query, true);
+    }
+
+    private Catalog catalog(ConnectionProvider provider, MetadataQuery query, boolean loadTables) {
         try {
             schemacrawler.schemacrawler.SchemaCrawlerOptions options = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions();
             if (query != null) {
                 LimitOptionsBuilder limits = LimitOptionsBuilder.builder();
-                Pattern schemaPattern = namespacePattern(query.getCatalog(), query.getSchema());
+                Pattern schemaPattern = query.getCatalog() == null ? null
+                        : namespacePattern(query.getCatalog(), query.getSchema());
                 if (schemaPattern != null) limits.includeSchemas(schemaPattern);
-                limits.includeTables(sqlPattern(query.getTablePattern()));
+                if (loadTables) limits.includeTables(sqlPattern(query.getTablePattern()));
                 options = options.withLimitOptions(limits.toOptions());
+            }
+            if (!loadTables) {
+                options = options.withLoadOptions(LoadOptionsBuilder.builder()
+                        .withSchemaInfoLevel(SchemaInfoLevelBuilder.builder().withoutTables().toOptions())
+                        .toOptions());
             }
             return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
         } catch (Exception e) {
@@ -84,10 +112,9 @@ public final class DatabaseMetadataService {
     }
 
     private Pattern namespacePattern(String catalog, String schema) {
-        List<String> names = new ArrayList<String>();
-        if (catalog != null) names.add(Pattern.quote(catalog));
-        if (schema != null && !schema.equalsIgnoreCase(catalog)) names.add(Pattern.quote(schema));
-        return names.isEmpty() ? null : Pattern.compile("^.*(?:" + join(names, "|") + ").*$", Pattern.CASE_INSENSITIVE);
+        if (catalog == null && schema == null) return null;
+        String name = schema == null ? catalog : schema;
+        return Pattern.compile("(?:^|.*/)" + Pattern.quote(name) + "(?:/.*)?$", Pattern.CASE_INSENSITIVE);
     }
 
     private Pattern sqlPattern(String value) {
