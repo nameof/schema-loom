@@ -169,6 +169,9 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 `BLOB`，而 `CLOB`、`TEXT`、`LONGTEXT` 默认复制；被跳过字段仍保留在 Schema 中，读取值为
 `null`，目标表也保留该列。
 
+不需要迁移超长数据时，可使用 `LargeFieldPolicy.skipLargeFields()` 跳过标准二进制类型和长文本类型，
+普通短文本仍会复制。
+
 ```java
 LargeFieldPolicy policy = LargeFieldPolicy.builder()
     .typeName("LONGTEXT", LargeFieldPolicy.Action.SKIP)

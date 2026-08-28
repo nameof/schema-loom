@@ -239,7 +239,7 @@ VIEW 数据迁移和 VIEW 定义迁移的异库能力不同：
 
 ### Quickstart：文件到数据库
 
-CSV 默认使用 UTF-8、逗号分隔和标题行。未提供 Schema 时会从最多 1000 行样本推断类型；对金额、标识符和前导零字段，建议显式提供 Schema。
+CSV 默认使用 UTF-8、逗号分隔、标题行和全字符串 Schema。可显式选择样本推断；推断或显式类型解码失败时支持 `FAIL_FAST`、`SKIP_VALUE`、`SKIP_ROW`。
 
 ```java
 Source source = new CsvSource(Paths.get("input.csv"));
@@ -269,7 +269,7 @@ Source source = new CsvSource(
 
 ### Quickstart：数据库到文件
 
-CSV 目标支持追加和覆盖；XLSX 目标只支持覆盖，并使用临时文件完成写入后替换目标文件。
+CSV 目标支持追加和覆盖；XLSX 目标只支持覆盖。两者在 REPLACE 模式下先写入 `.part`，成功后替换目标文件，写入失败时保留 `.part` 供排查。
 
 ```java
 Source source = new JdbcQuerySource(
@@ -295,7 +295,7 @@ EtlResult result = EtlTask.builder()
 Target target = new XlsxTarget(Paths.get("orders.xlsx"));
 ```
 
-XLSX Source 可指定 Sheet；不指定 Schema 时会基于前 1000 行数据推断：
+XlsxSource 可读取 `.xls` 和 `.xlsx` 并指定 Sheet；默认所有字段为字符串，也可选择基于前 1000 行数据推断：
 
 ```java
 Source source = new XlsxSource(
@@ -561,7 +561,8 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 - 资源配额：连接、内存、线程、文件限制
 - CsvSource/CsvTarget 支持多行引号字段:CsvSource.read() 使用 r.readLine() 逐行读取，parse() 也只处理单行。当 CSV 字段包含换行符（如 "line1\nline2"），会导致解析错乱。同时 CsvTarget.escape() 不检测字段值中的换行符，也不会用引号包裹，导致写出的 CSV 不可被标准解析器读取。
 - 支持指定数据库编码、内容编码
-- 大字段深入：已支持 BLOB 默认跳过、CLOB/TEXT/LONGTEXT 默认复制、按字段或类型跳过，以及文本/二进制阈值置空；
+- 大字段深入：已支持 BLOB 默认跳过、CLOB/TEXT/LONGTEXT 默认复制、按字段或类型跳过，以及通过
+  `LargeFieldPolicy.skipLargeFields()` 跳过标准二进制和长文本类型；
   - 未完成工作例如STREAM，参考doc/LARGE_FIELD_PROCESSING_STATUS.md
 
 ## 低优先级TODO

@@ -14,6 +14,7 @@ public final class XlsxTarget implements Target {
     private RecordSchema schema;
     private Path part;
     private int rows;
+    private boolean failed;
     private final int maxRowsPerSheet;
 
     public XlsxTarget(Path path) {
@@ -33,6 +34,7 @@ public final class XlsxTarget implements Target {
         if (mode != TargetMode.REPLACE) throw new IllegalArgumentException("XLSX supports REPLACE only");
         schema = descriptor.getSchema();
         part = path.resolveSibling(path.getFileName() + ".part");
+        failed = false;
         writer = ExcelUtil.getBigWriter(part.toFile(), "Sheet1");
         writer.writeHeadRow(names());
         rows = 1;
@@ -63,21 +65,24 @@ public final class XlsxTarget implements Target {
             }
             return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
+            failed = true;
             throw new SchemaLoomException("cannot write XLSX", e);
         }
     }
 
-    /** 关闭工作簿并将 .part 替换为最终 XLSX 文件。 */
+    /** 正常关闭时将 .part 替换为最终 XLSX 文件；写入失败时保留 .part。 */
     public void close() {
         if (writer == null) return;
         BigExcelWriter current = writer;
         try {
             current.close();
             writer = null;
-            Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
+            if (!failed)
+                Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
             writer = null;
             throw new SchemaLoomException("cannot close XLSX", e);
         }
     }
+
 }

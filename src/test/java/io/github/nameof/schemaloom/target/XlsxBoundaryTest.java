@@ -2,6 +2,8 @@ package io.github.nameof.schemaloom.target;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.source.XlsxSource;
+import io.github.nameof.schemaloom.source.FileSchemaMode;
+import io.github.nameof.schemaloom.source.InvalidValuePolicy;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.Test;
@@ -71,7 +73,8 @@ public class XlsxBoundaryTest {
         data.createCell(1).setCellValue("中文");
         OutputStream out = Files.newOutputStream(file);
         try { workbook.write(out); } finally { out.close(); workbook.close(); }
-        RecordSchema schema = new XlsxSource(file, "Data", null).schema().getSchema();
+        RecordSchema schema = new XlsxSource(file, "Data", null, 1000,
+                FileSchemaMode.INFER, InvalidValuePolicy.SKIP_VALUE).schema().getSchema();
         assertEquals(LogicalType.DECIMAL, schema.field("amount").getLogicalType());
         assertEquals(LogicalType.STRING, schema.field("name").getLogicalType());
     }

@@ -9,7 +9,19 @@ import java.nio.file.*;
 import java.time.*;
 import java.util.*;
 
-public final class CsvSource implements Source {
+/**
+ * CSV 文件 Source。
+ * <p>未提供显式 Schema 时，{@link FileSchemaMode#ALL_STRING} 为默认模式，所有字段按字符串读取，
+ * 此时 {@link InvalidValuePolicy} 不会触发；选择 {@link FileSchemaMode#INFER} 时，类型由最多 1000 行样本推断。
+ * 提供显式 Schema 时以显式 Schema 为准，读取阶段的字段转换失败按非法值策略处理：</p>
+ * <ul>
+ *   <li>{@link InvalidValuePolicy#FAIL_FAST}：首个失败立即终止读取；</li>
+ *   <li>{@link InvalidValuePolicy#SKIP_VALUE}：失败字段置为 null，保留整行，并按字段计入 skippedFieldRows；</li>
+ *   <li>{@link InvalidValuePolicy#SKIP_ROW}：丢弃包含失败字段的整行，并计入 skippedRows。</li>
+ * </ul>
+ * 缺失列和空值按 null 处理，不计入非法值统计。文件无法读取、标题为空或重复、CSV 引号未闭合等结构错误始终终止读取。
+ */
+public final class CsvSource implements Source, ReadStatisticsProvider {
     private static final int DEFAULT_BATCH_SIZE = 1000;
     private final Path path;
     private final Charset charset;
@@ -17,19 +29,29 @@ public final class CsvSource implements Source {
     private final int headerLine;
     private final int batchSize;
     private final RecordSchema explicit;
+    private final FileSchemaMode schemaMode;
+    private final InvalidValuePolicy invalidValuePolicy;
     private RecordSchema inferred;
+    private volatile ReadStatistics statistics = ReadStatistics.empty();
 
     public CsvSource(Path path) {
-        this(path, null, StandardCharsets.UTF_8, ',', 0, DEFAULT_BATCH_SIZE);
+        this(path, null, StandardCharsets.UTF_8, ',', 0, DEFAULT_BATCH_SIZE, FileSchemaMode.ALL_STRING, InvalidValuePolicy.SKIP_VALUE);
     }
 
     public CsvSource(Path path, RecordSchema schema, Charset charset, char delimiter, int headerLine) {
-        this(path, schema, charset, delimiter, headerLine, DEFAULT_BATCH_SIZE);
+        this(path, schema, charset, delimiter, headerLine, DEFAULT_BATCH_SIZE, schema == null ? FileSchemaMode.ALL_STRING : FileSchemaMode.INFER, InvalidValuePolicy.SKIP_VALUE);
     }
 
     public CsvSource(Path path, RecordSchema schema, Charset charset, char delimiter, int headerLine, int batchSize) {
+        this(path, schema, charset, delimiter, headerLine, batchSize, schema == null ? FileSchemaMode.ALL_STRING : FileSchemaMode.INFER, InvalidValuePolicy.SKIP_VALUE);
+    }
+
+    public CsvSource(Path path, RecordSchema schema, Charset charset, char delimiter, int headerLine, int batchSize,
+                     FileSchemaMode schemaMode, InvalidValuePolicy invalidValuePolicy) {
         this.path = Objects.requireNonNull(path, "path");
         this.explicit = schema;
+        this.schemaMode = Objects.requireNonNull(schemaMode, "schemaMode");
+        this.invalidValuePolicy = Objects.requireNonNull(invalidValuePolicy, "invalidValuePolicy");
         this.charset = Objects.requireNonNull(charset, "charset");
         this.delimiter = delimiter;
         this.headerLine = headerLine;
@@ -41,11 +63,27 @@ public final class CsvSource implements Source {
     /** 返回显式 Schema；未提供时只扫描一次标题和最多 1000 行样本。 */
     private RecordSchema recordSchema() {
         if (explicit != null) return explicit;
+        if (schemaMode == FileSchemaMode.ALL_STRING) return stringSchema();
         if (inferred == null) inferred = infer();
         return inferred;
     }
 
     public SchemaDescriptor schema() { return SchemaDescriptor.of(recordSchema()); }
+
+    private RecordSchema stringSchema() {
+        try (BufferedReader r = Files.newBufferedReader(path, charset)) {
+            for (int i = 0; i < headerLine; i++) if (readRow(r) == null) throw new SchemaLoomException("CSV has no header");
+            List<String> h = readRow(r);
+            if (h == null || h.isEmpty()) throw new SchemaLoomException("CSV has no header");
+            List<FieldSchema> fields = new ArrayList<FieldSchema>();
+            Set<String> names = new HashSet<String>();
+            for (String n : h) {
+                if (n.trim().isEmpty() || !names.add(n)) throw new SchemaLoomException("empty or duplicate CSV header: " + n);
+                fields.add(FieldSchema.of(n, LogicalType.STRING));
+            }
+            return new RecordSchema(fields);
+        } catch (IOException e) { throw new SchemaLoomException("cannot read CSV", e); }
+    }
 
     /** 根据标题和样本值推断字段类型，空值不参与推断。 */
     private RecordSchema infer() {
@@ -95,6 +133,8 @@ public final class CsvSource implements Source {
     /** 重新打开文件并按批次流式读取，避免把整个 CSV 加载到内存。 */
     public void read(BatchConsumer consumer) {
         RecordSchema s = recordSchema();
+        long readRows = 0, skippedRows = 0;
+        Map<String, Long> skippedFields = new LinkedHashMap<String, Long>();
         try {
             BufferedReader r = Files.newBufferedReader(path, charset);
             try {
@@ -106,9 +146,23 @@ public final class CsvSource implements Source {
                 while ((line = r.readLine()) != null) {
                     List<String> row = parse(line);
                     List<Object> values = new ArrayList<Object>();
-                    for (int i = 0; i < s.getFields().size(); i++)
-                        values.add(i < row.size() ? TextValueCodec.parse(s.getFields().get(i), row.get(i)) : null);
+                    boolean skip = false;
+                    for (int i = 0; i < s.getFields().size(); i++) {
+                        String text = i < row.size() ? row.get(i) : null;
+                        if (text == null) { values.add(null); continue; }
+                        if (schemaMode == FileSchemaMode.ALL_STRING && explicit == null) { values.add(text); continue; }
+                        try { values.add(text.isEmpty() ? null : TextValueCodec.parse(s.getFields().get(i), text)); }
+                        catch (RuntimeException e) {
+                            if (invalidValuePolicy == InvalidValuePolicy.FAIL_FAST) throw new SchemaLoomException("CSV value decode failed", e);
+                            if (invalidValuePolicy == InvalidValuePolicy.SKIP_ROW) { skip = true; break; }
+                            values.add(null);
+                            String name = s.getFields().get(i).getName();
+                            skippedFields.put(name, skippedFields.containsKey(name) ? skippedFields.get(name) + 1 : 1L);
+                        }
+                    }
+                    if (skip) { skippedRows++; continue; }
                     batch.add(new DataRecord(s, values));
+                    readRows++;
                     // 达到批大小后立即交给任务引擎处理。
                     if (batch.size() == batchSize) {
                         consumer.accept(new RecordBatch(s, batch));
@@ -116,6 +170,7 @@ public final class CsvSource implements Source {
                     }
                 }
                 if (!batch.isEmpty()) consumer.accept(new RecordBatch(s, batch));
+                statistics = new ReadStatistics(readRows, skippedRows, skippedFields);
             } finally {
                 r.close();
             }
@@ -185,4 +240,6 @@ public final class CsvSource implements Source {
 
     public void close() {
     }
+
+    public ReadStatistics getReadStatistics() { return statistics; }
 }

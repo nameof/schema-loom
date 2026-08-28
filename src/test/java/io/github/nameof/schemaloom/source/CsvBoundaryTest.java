@@ -29,7 +29,8 @@ public class CsvBoundaryTest {
     public void infersTypesAndPreservesUnicodeAndLeadingZero() throws Exception {
         Path file = Files.createTempFile("schemaloom-infer", ".csv");
         Files.write(file, Arrays.asList("code,name,amount,day", "00123,中文,12.50,2026-08-02"), StandardCharsets.UTF_8);
-        CsvSource source = new CsvSource(file);
+        CsvSource source = new CsvSource(file, null, StandardCharsets.UTF_8, ',', 0, 1000,
+                FileSchemaMode.INFER, InvalidValuePolicy.SKIP_VALUE);
         RecordSchema schema = source.schema().getSchema();
         assertEquals(LogicalType.STRING, schema.field("code").getLogicalType());
         assertEquals(LogicalType.STRING, schema.field("name").getLogicalType());
@@ -51,6 +52,21 @@ public class CsvBoundaryTest {
         List<Integer> sizes = new ArrayList<Integer>();
         source.read(batch -> sizes.add(batch.getRecords().size()));
         assertEquals(Arrays.asList(2, 1), sizes);
+    }
+
+    @Test
+    public void defaultsToAllStringAndSkipsInvalidValue() throws Exception {
+        Path file = Files.createTempFile("schemaloom-policy", ".csv");
+        Files.write(file, Arrays.asList("id,amount", "46518020020323416X,1.2", "123,broken"), StandardCharsets.UTF_8);
+        CsvSource strings = new CsvSource(file);
+        assertEquals(LogicalType.STRING, strings.schema().getSchema().field("amount").getLogicalType());
+        RecordSchema typed = new RecordSchema(Arrays.asList(FieldSchema.of("id", LogicalType.STRING), FieldSchema.of("amount", LogicalType.DECIMAL)));
+        CsvSource inferred = new CsvSource(file, typed, StandardCharsets.UTF_8, ',', 0, 1000,
+                FileSchemaMode.INFER, InvalidValuePolicy.SKIP_VALUE);
+        final List<DataRecord> rows = new ArrayList<DataRecord>();
+        inferred.read(batch -> rows.addAll(batch.getRecords()));
+        assertNull(rows.get(1).get("amount"));
+        assertEquals(Long.valueOf(1), inferred.getReadStatistics().getSkippedFieldRows().get("amount"));
     }
 
     @Test(expected = IllegalArgumentException.class)

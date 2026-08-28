@@ -14,7 +14,7 @@ public final class CsvTarget implements Target {
     private final char delimiter;
     private Writer writer;
     private RecordSchema schema;
-    private Path partial;
+    private Path part;
 
     public CsvTarget(Path path) {
         this(path, StandardCharsets.UTF_8, ',');
@@ -28,11 +28,11 @@ public final class CsvTarget implements Target {
 
     /** 创建 CSV 输出；REPLACE 先写入 .part，APPEND 先校验已有标题。 */
     public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
-        this.schema = descriptor.getSchema();
+            this.schema = descriptor.getSchema();
         try {
             // REPLACE 不直接覆盖旧文件，避免任务失败时破坏原文件。
             Path out = mode == TargetMode.REPLACE ? path.resolveSibling(path.getFileName() + ".part") : path;
-            partial = mode == TargetMode.REPLACE ? path.resolveSibling(path.getFileName() + ".partial") : null;
+            part = mode == TargetMode.REPLACE ? out : null;
             if (mode == TargetMode.APPEND && Files.exists(out)) {
                 // 追加前必须确认列顺序和标题完全一致。
                 BufferedReader r = Files.newBufferedReader(out, charset);
@@ -68,7 +68,7 @@ public final class CsvTarget implements Target {
         return s.indexOf(delimiter) >= 0 || s.indexOf('"') >= 0 ? "\"" + s.replace("\"", "\"\"") + "\"" : s;
     }
 
-    /** 序列化并刷新一个批次；序列化失败时保留 partial 文件供排查。 */
+    /** 序列化并刷新一个批次；序列化失败时保留 .part 文件供排查。 */
     public BatchWriteResult write(RecordBatch batch) {
         try {
             for (DataRecord r : batch.getRecords()) {
@@ -87,18 +87,18 @@ public final class CsvTarget implements Target {
         }
     }
 
-    /** 关闭写入器，并在 REPLACE 成功时将 .part 原子替换为目标文件。 */
+    /** 正常关闭时将 .part 原子替换为目标文件；写入失败时 .part 已被保留。 */
     public void close() {
         if (writer == null) return;
         Writer current = writer;
         try {
             current.close();
             writer = null;
-            if (partial != null) {
+            if (part != null) {
                 try {
-                    Files.move(path.resolveSibling(path.getFileName() + ".part"), path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                    Files.move(part, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
                 } catch (AtomicMoveNotSupportedException e) {
-                    Files.move(path.resolveSibling(path.getFileName() + ".part"), path, StandardCopyOption.REPLACE_EXISTING);
+                    Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
         } catch (IOException e) {
@@ -110,13 +110,11 @@ public final class CsvTarget implements Target {
         }
     }
 
-    /** 将未完成的 .part 改名为 .partial，避免失败文件被误认为成功产物。 */
+    /** 保留未完成的 .part 文件供排查和人工恢复。 */
     private void preservePartial() {
-        if (partial == null) return;
+        if (part == null) return;
         try {
             if (writer != null) writer.close();
-            Path part = path.resolveSibling(path.getFileName() + ".part");
-            if (Files.exists(part)) Files.move(part, partial, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException ignored) {
             // 保留原始写入异常，无法移动时由调用方根据目标目录排查。
         } finally {
