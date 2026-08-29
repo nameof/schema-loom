@@ -35,6 +35,8 @@ LargeFieldPolicy policy = LargeFieldPolicy.builder()
 - `SKIP`：不读取字段值，输出 `null`。
 
 默认策略为 `BLOB` 跳过，`CLOB`、`TEXT`、`LONGTEXT` 复制。用户仍可按字段名、原生类型名或 JDBC 类型覆盖该默认行为。
+如不需要迁移超长数据，可直接使用 `LargeFieldPolicy.skipLargeFields()`，跳过标准二进制类型以及
+`TEXT`、`TINYTEXT`、`MEDIUMTEXT`、`LONGTEXT`、`CLOB` 等长文本类型，普通短文本仍会复制。
 
 ### 2.2 阈值处理
 

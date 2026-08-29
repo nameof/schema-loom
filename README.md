@@ -513,6 +513,15 @@ $env:SCHEMALOOM_IT_MYSQL_DRIVER_ID = "mysql8"
 mvn -Dtest=JdbcEtlIntegrationTest test
 ```
 
+## 性能测试
+
+```powershell
+mvn -Pperformance test
+```
+
+该 Profile 生成并处理 1,000,000 条记录，只保留当前批次，默认单测不会执行此检查。
+
+
 不要把真实凭据提交到仓库。配置 `SCHEMALOOM_IT_MYSQL_DRIVER_ID` 后，测试会从 classpath 的 `drivers` 资源目录加载 descriptor 和 JAR，并通过 `JdbcDriverLoader.connect(...)` 创建源连接、目标连接和校验连接。集成测试会创建并清理 `schemaloom_source`、`schemaloom_target` 测试表。
 
 ## 功能规划
@@ -552,6 +561,7 @@ mvn -Dtest=JdbcEtlIntegrationTest test
 
 
 ## 核心功能&BUG TODO
+- 增加rename、delete表 API
 - CSV 配置：自定义quote、escape
 - 日志输出
 - 代码审计：所有逻辑均正确关闭已打开资源

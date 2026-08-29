@@ -101,6 +101,7 @@ JDBC 仍作为连接、驱动加载、语句执行和动态查询结果元数据
 跳过字段保持在 Schema 中并以 `null` 输出；按字段规则优先于原生类型规则。可为文本和二进制值设置
 阈值，超限值同样以 `null` 输出。策略可能输出 `null` 的字段在 Source Schema 中标记为
 可空，确保新建目标表可写入；追加到既有非空列时由目标兼容校验拒绝。
+不需要迁移超长数据时，可使用 `LargeFieldPolicy.skipLargeFields()` 跳过标准二进制和长文本类型。
 
 `STREAM` 需要在 `ResultSet` 生命周期内直接绑定到 JDBC Target，不能通过当前会在批次间
 传递的 `DataRecord` 伪造实现，保留为后续内部执行层改造项。

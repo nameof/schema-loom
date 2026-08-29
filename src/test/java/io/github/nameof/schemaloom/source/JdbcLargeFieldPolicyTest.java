@@ -12,7 +12,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
-import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,6 +51,21 @@ public class JdbcLargeFieldPolicyTest {
         assertArrayEquals(new byte[] {1, 2}, (byte[]) rows.get(0).get("ATTACHMENT"));
         assertEquals(Long.valueOf(1), source.getReadStatistics().getSkippedFieldRows().get("CONTENT"));
         assertEquals(Long.valueOf(1), source.getReadStatistics().getSkippedFieldRows().get("NOTE"));
+        source.close();
+    }
+
+    @Test
+    public void skipLargeFieldsSkipsBinaryAndLongTextButCopiesShortText() throws Exception {
+        ConnectionProvider provider = provider("skip-large-fields");
+        setup(provider.getConnection());
+        LargeFieldPolicy policy = LargeFieldPolicy.skipAllLargeFields();
+        JdbcQuerySource source = new JdbcQuerySource(provider, "SELECT id, content, attachment, note FROM documents",
+                Collections.<Object>emptyList(), 10, policy);
+        List<DataRecord> rows = read(source);
+
+        assertNull(rows.get(0).get("CONTENT"));
+        assertNull(rows.get(0).get("ATTACHMENT"));
+        assertEquals("short", rows.get(0).get("NOTE"));
         source.close();
     }
 

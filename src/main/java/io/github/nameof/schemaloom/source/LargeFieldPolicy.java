@@ -44,6 +44,35 @@ public final class LargeFieldPolicy {
                 .typeName("BLOB", Action.SKIP).build();
     }
 
+    /** 不跳过任何字段。 */
+    public static LargeFieldPolicy none() {
+        return builder().build();
+    }
+
+    /** 跳过所有标准二进制类型和长文本类型，适合不迁移超长数据的 ETL 场景。 */
+    public static LargeFieldPolicy skipAllLargeFields() {
+        return builder()
+                .jdbcType(Types.BINARY, Action.SKIP)
+                .jdbcType(Types.VARBINARY, Action.SKIP)
+                .jdbcType(Types.LONGVARBINARY, Action.SKIP)
+                .jdbcType(Types.BLOB, Action.SKIP)
+                .jdbcType(Types.LONGVARCHAR, Action.SKIP)
+                .jdbcType(Types.LONGNVARCHAR, Action.SKIP)
+                .jdbcType(Types.CLOB, Action.SKIP)
+                .typeName("BINARY", Action.SKIP)
+                .typeName("VARBINARY", Action.SKIP)
+                .typeName("LONGVARBINARY", Action.SKIP)
+                .typeName("BLOB", Action.SKIP)
+                .typeName("TEXT", Action.SKIP)
+                .typeName("TINYTEXT", Action.SKIP)
+                .typeName("MEDIUMTEXT", Action.SKIP)
+                .typeName("LONGTEXT", Action.SKIP)
+                .typeName("LONGVARCHAR", Action.SKIP)
+                .typeName("LONGNVARCHAR", Action.SKIP)
+                .typeName("CLOB", Action.SKIP)
+                .build();
+    }
+
     Action action(String fieldName, int jdbcType, String typeName) {
         Action action = fieldActions.get(normalize(fieldName));
         if (action != null) return action;

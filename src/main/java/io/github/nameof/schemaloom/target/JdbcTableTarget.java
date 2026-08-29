@@ -106,12 +106,12 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 handleMetadataError("索引冲突: " + expected.getName(), new SchemaLoomException("目标索引定义不一致"));
                 continue;
             }
-            executeMetadataSql(c, Collections.singletonList(indexSql(expected, q)), "索引");
+            executeMetadataSql(c, indexSql(expected, q), "索引");
         }
     }
 
-    private String indexSql(IndexInfo index, String tableName) {
-        return dialect.indexSql(tableName, Collections.singletonList(index)).get(0);
+    private List<String> indexSql(IndexInfo index, String tableName) {
+        return dialect.indexSql(tableName, Collections.singletonList(index));
     }
 
     private boolean sameDefinition(IndexInfo a, IndexInfo b) {
