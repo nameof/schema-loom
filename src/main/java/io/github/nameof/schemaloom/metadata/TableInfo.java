@@ -16,6 +16,7 @@ public final class TableInfo {
     private final String remarks;
     private final List<ForeignKeyInfo> foreignKeys;
     private final List<ConstraintInfo> constraints;
+    private volatile RecordSchema schema;
 
     /** 从通用 Schema 创建无额外数据库属性的表定义。 */
     public TableInfo(QualifiedTableName name, boolean view, RecordSchema schema) {
@@ -55,13 +56,16 @@ public final class TableInfo {
         this.remarks = remarks;
     }
 
-    /** 从数据库列投影出数据读写所需的通用 Schema。 */
+    /** 从数据库列投影出数据读写所需的通用 Schema；结果在首次调用后缓存。 */
     public RecordSchema getSchema() {
-        List<FieldSchema> fields = new ArrayList<>();
-        for (ColumnInfo column : columns)
-            fields.add(column.getFieldSchema());
-        List<String> keys = primaryKey == null ? Collections.emptyList() : primaryKey.getColumns();
-        return new RecordSchema(fields, keys);
+        if (schema == null) {
+            List<FieldSchema> fields = new ArrayList<FieldSchema>();
+            for (ColumnInfo column : columns)
+                fields.add(column.getFieldSchema());
+            List<String> keys = primaryKey == null ? Collections.<String>emptyList() : primaryKey.getColumns();
+            schema = new RecordSchema(fields, keys);
+        }
+        return schema;
     }
 
     public QualifiedTableName getName() { return name; }
