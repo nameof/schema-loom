@@ -1,5 +1,6 @@
 package io.github.nameof.schemaloom.dialect;
 
+import cn.hutool.core.util.StrUtil;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
@@ -29,6 +30,12 @@ final class SqlServerDialect extends AbstractDialect {
 
     @Override
     protected String identityColumn(ColumnInfo column) { return "IDENTITY(1,1)"; }
+
+    @Override
+    public String renameTableSql(String table, String newTable) {
+        return "EXEC sp_rename N'" + StrUtil.replace(table, "'", "''") + "', N'"
+                + StrUtil.replace(newTable, "'", "''") + "'";
+    }
 
     @Override
     public List<String> commentSql(String table, TableInfo source) {

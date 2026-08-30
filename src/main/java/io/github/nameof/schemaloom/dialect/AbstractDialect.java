@@ -148,23 +148,28 @@ abstract class AbstractDialect implements DatabaseDialect {
     }
 
     @Override
-    public String dropTable(String table) {
+    public String dropTableSql(String table) {
         return "DROP TABLE " + table;
     }
 
     @Override
-    public String createView(String view, String definition) {
+    public String renameTableSql(String table, String newTable) {
+        return "ALTER TABLE " + table + " RENAME TO " + newTable;
+    }
+
+    @Override
+    public String createViewSql(String view, String definition) {
         if (definition == null || definition.trim().isEmpty()) throw new IllegalArgumentException("view definition is required");
         return "CREATE VIEW " + view + " AS " + definition;
     }
 
     @Override
-    public String dropView(String view) {
+    public String dropViewSql(String view) {
         return "DROP VIEW " + view;
     }
 
     @Override
-    public String insert(String table, RecordSchema s) {
+    public String insertSql(String table, RecordSchema s) {
         StringBuilder b = new StringBuilder("INSERT INTO ").append(table).append(" (");
         for (int i = 0; i < s.getFields().size(); i++) {
             if (i > 0) b.append(", ");

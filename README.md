@@ -561,7 +561,6 @@ mvn -Pperformance test
 
 
 ## 核心功能&BUG TODO
-- 增加rename、delete表 API
 - CSV 配置：自定义quote、escape
 - 日志输出
 - 代码审计：所有逻辑均正确关闭已打开资源

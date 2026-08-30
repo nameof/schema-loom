@@ -68,7 +68,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 throw new SchemaLoomException("JDBC table target cannot write to a view: " + table.getTable());
             String q = dialect.quote(table);
             if (mode == TargetMode.REPLACE && exists) {
-                c.createStatement().executeUpdate(dialect.dropTable(q));
+                c.createStatement().executeUpdate(dialect.dropTableSql(q));
                 exists = false;
             }
             if (!exists) {
@@ -153,7 +153,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         Connection c = provider.getConnection();
         boolean old;
         try {
-            String sql = dialect.insert(dialect.quote(table), schema);
+            String sql = dialect.insertSql(dialect.quote(table), schema);
             old = c.getAutoCommit();
             c.setAutoCommit(false);
             PreparedStatement ps = c.prepareStatement(sql);

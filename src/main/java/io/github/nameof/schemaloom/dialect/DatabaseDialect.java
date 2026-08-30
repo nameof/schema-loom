@@ -33,13 +33,16 @@ public interface DatabaseDialect {
     /**
      * 根据已引用的表名生成 DROP TABLE SQL。
      */
-    String dropTable(String table);
+    String dropTableSql(String table);
+
+    /** 根据已引用的表名生成重命名表 SQL。 */
+    String renameTableSql(String table, String newTable);
 
     /** 根据从源数据库获取的 SELECT 定义创建视图。 */
-    String createView(String view, String definition);
+    String createViewSql(String view, String definition);
 
     /** 删除已引用的视图名称。 */
-    String dropView(String view);
+    String dropViewSql(String view);
 
     /** 构建用于读取视图定义的数据库专用参数化查询。 */
     ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view);
@@ -47,5 +50,5 @@ public interface DatabaseDialect {
     /**
      * 根据指定 Schema 生成参数化 INSERT SQL。
      */
-    String insert(String table, RecordSchema schema);
+    String insertSql(String table, RecordSchema schema);
 }

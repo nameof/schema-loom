@@ -63,7 +63,7 @@ final class JdbcViewMigrator {
             DatabaseDialect dialect = new DialectRegistry().get(source.getDatabaseType());
             String definition = readDefinition(sourceProvider.getConnection(), dialect.viewDefinitionQuery(source, sourceName));
             try (Statement statement = targetProvider.getConnection().createStatement()) {
-                statement.executeUpdate(dialect.createView(dialect.quote(targetName), definition));
+                statement.executeUpdate(dialect.createViewSql(dialect.quote(targetName), definition));
             }
         } catch (SQLException e) {
             throw new SchemaLoomException("cannot migrate JDBC view", e);

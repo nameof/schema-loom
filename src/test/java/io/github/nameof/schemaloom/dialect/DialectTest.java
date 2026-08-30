@@ -49,8 +49,19 @@ public class DialectTest {
     @Test
     public void createsNativeViewDdl() {
         DatabaseDialect dialect = new DialectRegistry().get(DatabaseType.MYSQL);
-        assertEquals("CREATE VIEW `v` AS SELECT 1", dialect.createView("`v`", "SELECT 1"));
-        assertEquals("DROP VIEW `v`", dialect.dropView("`v`"));
+        assertEquals("CREATE VIEW `v` AS SELECT 1", dialect.createViewSql("`v`", "SELECT 1"));
+        assertEquals("DROP VIEW `v`", dialect.dropViewSql("`v`"));
+    }
+
+    @Test
+    public void createsNativeRenameTableDdl() {
+        DialectRegistry registry = new DialectRegistry();
+        assertEquals("RENAME TABLE `old` TO `new`",
+                registry.get(DatabaseType.MYSQL).renameTableSql("`old`", "`new`"));
+        assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
+                registry.get(DatabaseType.ORACLE).renameTableSql("\"old\"", "\"new\""));
+        assertEquals("EXEC sp_rename N'\"old\"', N'\"new\"'",
+                registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"old\"", "\"new\""));
     }
 
     @Test
