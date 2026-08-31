@@ -36,12 +36,20 @@ public final class LargeFieldPolicy {
     public static Builder builder() { return new Builder(); }
 
     /**
-     * 默认行为：BLOB：跳过读取
-     * CLOB、TEXT、LONGTEXT、LONGVARCHAR等：照常读取
+     * 默认行为：跳过所有标准二进制类型（BLOB、VARBINARY、LONGVARBINARY、BINARY）；
+     * CLOB、TEXT、LONGTEXT、LONGVARCHAR 等字符字段照常读取。
      */
     public static LargeFieldPolicy defaults() {
-        return builder().jdbcType(Types.BLOB, Action.SKIP)
-                .typeName("BLOB", Action.SKIP).build();
+        return builder()
+                .jdbcType(Types.BLOB, Action.SKIP)
+                .jdbcType(Types.VARBINARY, Action.SKIP)
+                .jdbcType(Types.LONGVARBINARY, Action.SKIP)
+                .jdbcType(Types.BINARY, Action.SKIP)
+                .typeName("BLOB", Action.SKIP)
+                .typeName("VARBINARY", Action.SKIP)
+                .typeName("LONG VARBINARY", Action.SKIP)
+                .typeName("BINARY", Action.SKIP)
+                .build();
     }
 
     /** 不跳过任何字段。 */
