@@ -161,7 +161,7 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 }
 ```
 
-`JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。
+`JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。`REPLACE` 模式先写入 `<目标表>_tmp`，写入成功后 rename 切换正式表，失败时清理临时表并保留原目标表。
 
 ### 3.2 JDBC 大字段策略
 

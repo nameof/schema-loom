@@ -200,7 +200,7 @@ List<DataRecord> sample = tableSource.read(200);      // 允许 1 到 300 行
 SchemaLoom 将 VIEW 分为“读取数据”和“迁移视图定义”两种独立场景：
 
 - `JdbcTableSource` 可以读取 TABLE 或 VIEW。VIEW 只作为只读查询来源，不会复制其底层表结构。
-- `JdbcTableTarget` 始终表示普通目标表。目标表不存在时，会根据 Source（包括 VIEW）的输出 Schema 自动创建；已存在时按 `APPEND` 或 `REPLACE` 处理。
+- `JdbcTableTarget` 始终表示普通目标表。目标表不存在时，会根据 Source（包括 VIEW）的输出 Schema 自动创建；已存在时按 `APPEND` 或 `REPLACE` 处理。`REPLACE` 先写入 `<目标表>_tmp`，Target 写入成功后通过方言 rename 切换正式表；写入失败时删除临时表并保留原目标表。
 - 如果目标对象已经是 VIEW，`JdbcTableTarget` 会失败，不会向 VIEW 写入，也不会把 VIEW 当作普通表删除重建。
 - 如果要把 VIEW 结果物化为表，使用普通 `EtlTask`，由用户指定目标表名：
 
@@ -564,6 +564,7 @@ mvn -Pperformance test
 - CSV 配置：自定义quote、escape
 - 日志输出
 - 代码审计：所有逻辑均正确关闭已打开资源
+- 其他数据源支持：PGSQL、MONGO、JSON
 
 ## 优化TODO
 - loader、provider、connection、source、target 、task，一环套一环，需简化资源释放和引用关系
@@ -576,7 +577,6 @@ mvn -Pperformance test
 
 ## 低优先级TODO
 - 数据冲突处理：目标表已存在主键冲突的数据时，可选策略：忽略（ISOLATE_AND_CONTINUE已支持）、失败（FAIL_FAST已支持）、更新/覆盖（TODO）
-- 其他数据源支持：PGSQL、MONGO、JSON
 - JDBC Source：指定部分字段、参数化WHERE过滤条件配置（包含增量ETL功能）
 - 异库/跨数据库类型的视图定义迁移
 - MYSQL 字段注释迁移

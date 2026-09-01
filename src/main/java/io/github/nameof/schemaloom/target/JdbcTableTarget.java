@@ -14,7 +14,7 @@ import java.util.*;
  *
  * <p>目标表不存在时，{@link #prepare} 会依据 Source
  * Schema 自动生成普通表；目标已存在时，{@code APPEND} 只在结构兼容时追加，
- * {@code REPLACE} 会删除并重建目标表。目标表名始终由调用方指定，不能从
+ * {@code REPLACE} 会先写入 {@code <目标表>_tmp}，成功后通过 rename 切换；失败时保留原目标表。
  * </p>
  *
  * <p>VIEW：只能作为数据只读来源，不能作为 Target 的写入对象。若Target对象已经是 VIEW，准备阶段会失败；
@@ -28,6 +28,10 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
     private RecordSchema schema;
     private boolean prepared;
+    private boolean replaceMode;
+    private boolean targetWriteFailed;
+    private QualifiedTableName writeTable;
+    private boolean temporaryCreated;
     private long writtenRows;
 
     JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type) {
@@ -56,6 +60,9 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
         if (descriptor == null) throw new IllegalArgumentException("schema descriptor is required");
         schema = descriptor.getSchema();
+        replaceMode = mode == TargetMode.REPLACE;
+        targetWriteFailed = false;
+        temporaryCreated = false;
         TableInfo tableMetadata = descriptor.getTableInfo();
         validateCapabilities(schema);
         Connection c = provider.getConnection();
@@ -66,11 +73,15 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             boolean exists = existingTable != null;
             if (exists && existingTable.isView())
                 throw new SchemaLoomException("JDBC table target cannot write to a view: " + table.getTable());
-            String q = dialect.quote(table);
-            if (mode == TargetMode.REPLACE && exists) {
-                c.createStatement().executeUpdate(dialect.dropTableSql(q));
+            // Determine write table name
+            writeTable = replaceMode ? temporaryTable() : table;
+            String q = dialect.quote(writeTable);
+            if (replaceMode) {
+                dropTemporaryIfPresent(c);
+                temporaryCreated = true;
                 exists = false;
             }
+            // Create or validate table
             if (!exists) {
                 c.createStatement().executeUpdate(tableMetadata == null
                         ? dialect.createTableSql(q, schema) : dialect.createTableSql(q, tableMetadata));
@@ -87,8 +98,19 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             preparationErrors.clear();
             return errors;
         } catch (SQLException e) {
+            targetWriteFailed = true;
             throw new SchemaLoomException("cannot prepare JDBC target", e);
         }
+    }
+
+    private QualifiedTableName temporaryTable() {
+        return new QualifiedTableName(table.getCatalog(), table.getSchema(), table.getTable() + "_tmp");
+    }
+
+    private void dropTemporaryIfPresent(Connection c) throws SQLException {
+        List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
+                new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable() + "_tmp"));
+        if (!tables.isEmpty()) c.createStatement().executeUpdate(dialect.dropTableSql(dialect.quote(writeTable)));
     }
 
     /** 按名称和完整定义比较索引；等价索引直接跳过，冲突按结构策略处理。 */
@@ -153,7 +175,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         Connection c = provider.getConnection();
         boolean old;
         try {
-            String sql = dialect.insertSql(dialect.quote(table), schema);
+            String sql = dialect.insertSql(dialect.quote(writeTable), schema);
             old = c.getAutoCommit();
             c.setAutoCommit(false);
             PreparedStatement ps = c.prepareStatement(sql);
@@ -168,6 +190,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 incrementWrittenRows(b.size());
                 return new BatchWriteResult(b.size(), 0);
             } catch (SQLException e) {
+                targetWriteFailed = true;
                 try {
                     c.rollback();
                 } catch (SQLException ignored) {
@@ -178,7 +201,11 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 c.setAutoCommit(old);
             }
         } catch (SQLException e) {
+            targetWriteFailed = true;
             throw new SchemaLoomException("cannot write JDBC target: " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            targetWriteFailed = true;
+            throw e;
         }
     }
 
@@ -187,7 +214,29 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     public void close() {
-        provider.close();
+        try {
+            // Replace mode: drop temporary table and rename target table to final name.
+            if (replaceMode && temporaryCreated) {
+                Connection c = provider.getConnection();
+                try {
+                    if (targetWriteFailed || !prepared) {
+                        dropTemporaryIfPresent(c);
+                    } else {
+                        List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
+                                new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
+                        if (!tables.isEmpty())
+                            c.createStatement().executeUpdate(dialect.dropTableSql(dialect.quote(table)));
+                        c.createStatement().executeUpdate(dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
+                    }
+                } catch (SQLException e) {
+                    targetWriteFailed = true;
+                    try { dropTemporaryIfPresent(c); } catch (SQLException ignored) { }
+                    throw new SchemaLoomException("cannot finalize JDBC target", e);
+                }
+            }
+        } finally {
+            provider.close();
+        }
     }
 
     public synchronized WriteStatistics getWriteStatistics() {

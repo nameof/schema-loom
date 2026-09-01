@@ -36,10 +36,41 @@ public class JdbcTableTargetContractTest {
         target.prepare(schema(new FieldSchema("id", LogicalType.INT32, false, null, null, null)), TargetMode.APPEND);
     }
 
-    @Test public void replaceDropsAndCreatesExistingTable() throws Exception {
+    @Test public void replaceKeepsOldTableUntilCloseAndRenamesTemporaryTable() throws Exception {
         JdbcTableTarget target = target("replace", "CREATE TABLE orders (old_value VARCHAR(10))");
         target.prepare(schema(new FieldSchema("id", LogicalType.INT32, false, null, null, null)), TargetMode.REPLACE);
+        Connection check = DriverManager.getConnection("jdbc:h2:mem:replace;MODE=MySQL;DB_CLOSE_DELAY=-1");
+        assertEquals(1, count(check, "ORDERS"));
+        assertEquals(1, count(check, "ORDERS_TMP"));
+        check.close();
         target.close();
+        Connection after = DriverManager.getConnection("jdbc:h2:mem:replace;MODE=MySQL;DB_CLOSE_DELAY=-1");
+        assertEquals(1, count(after, "ORDERS"));
+        assertEquals(0, count(after, "ORDERS_TMP"));
+        after.close();
+    }
+
+    @Test public void replaceWriteFailureCleansTemporaryAndKeepsOldTable() throws Exception {
+        JdbcTableTarget target = target("replace_failure", "CREATE TABLE orders (old_value VARCHAR(10) NOT NULL)");
+        RecordSchema writeSchema = new RecordSchema(Collections.singletonList(new FieldSchema("id", LogicalType.INT32, false, null, null, null)));
+        target.prepare(SchemaDescriptor.of(writeSchema), TargetMode.REPLACE);
+        try {
+            target.write(new RecordBatch(writeSchema,
+                    Collections.singletonList(new DataRecord(writeSchema, Collections.<Object>singletonList(null)))));
+            fail("expected write failure");
+        } catch (SchemaLoomException expected) {
+            // 由 close 负责清理临时表。
+        }
+        target.close();
+        Connection after = DriverManager.getConnection("jdbc:h2:mem:replace_failure;MODE=MySQL;DB_CLOSE_DELAY=-1");
+        assertEquals(1, count(after, "ORDERS"));
+        assertEquals(0, count(after, "ORDERS_TMP"));
+        after.close();
+    }
+
+    private int count(Connection c, String table) throws SQLException {
+        ResultSet rs = c.getMetaData().getTables(null, null, table, new String[]{"TABLE"});
+        try { return rs.next() ? 1 : 0; } finally { rs.close(); }
     }
 
     @Test(expected = SchemaLoomException.class)
@@ -49,7 +80,7 @@ public class JdbcTableTargetContractTest {
     }
 
     private JdbcTableTarget target(String database, String ddl) throws SQLException {
-        final Connection connection = DriverManager.getConnection("jdbc:h2:mem:" + database + ";DB_CLOSE_DELAY=-1");
+        final Connection connection = DriverManager.getConnection("jdbc:h2:mem:" + database + ";MODE=MySQL;DB_CLOSE_DELAY=-1");
         Statement statement = connection.createStatement();
         statement.execute(ddl);
         statement.close();

@@ -56,7 +56,7 @@ public class DialectTest {
     @Test
     public void createsNativeRenameTableDdl() {
         DialectRegistry registry = new DialectRegistry();
-        assertEquals("RENAME TABLE `old` TO `new`",
+        assertEquals("ALTER TABLE `old` RENAME TO `new`",
                 registry.get(DatabaseType.MYSQL).renameTableSql("`old`", "`new`"));
         assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.ORACLE).renameTableSql("\"old\"", "\"new\""));

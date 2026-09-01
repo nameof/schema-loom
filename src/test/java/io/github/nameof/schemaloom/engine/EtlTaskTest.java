@@ -186,7 +186,7 @@ public class EtlTaskTest {
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         EtlResult result = EtlTask.builder()
                 .source(new JdbcTableSource(sourceConfig, "jsh_account"))
-                .target(new JdbcTableTarget(targetConfig, "sss2b"))
+                .target(new JdbcTableTarget(targetConfig, "sss2b2"))
                 .targetMode(TargetMode.REPLACE)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);

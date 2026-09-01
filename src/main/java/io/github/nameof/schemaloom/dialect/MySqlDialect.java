@@ -30,7 +30,7 @@ final class MySqlDialect extends AbstractDialect {
 
     @Override
     public String renameTableSql(String table, String newTable) {
-        return "RENAME TABLE " + table + " TO " + newTable;
+        return "ALTER TABLE " + table + " RENAME TO " + newTable;
     }
 
     /** MySQL has no safe standalone column-comment ALTER; keep field comments for future support. */
