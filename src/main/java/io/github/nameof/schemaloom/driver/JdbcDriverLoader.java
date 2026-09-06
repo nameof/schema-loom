@@ -52,6 +52,7 @@ public final class JdbcDriverLoader implements AutoCloseable {
             throw new SchemaLoomException("no JDBC driver matches database type: " + config.getDatabaseType());
         }
         Throwable last = null;
+        String lastDriverId = null;
         for (DriverDescriptor d : candidates) {
             try {
                 String url = JdbcUrlBuilder.build(config.getDatabaseType(), d.getUrlTemplate(), config.getHost(), config.getPort(), config.getDatabase());
@@ -63,11 +64,13 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 return open(d, url, p);
             } catch (Throwable e) {
                 last = e;
+                lastDriverId = d.getId();
                 // 未指定驱动时允许降级尝试下一个候选；指定驱动则保留原始失败原因。
                 if (driverId != null) break;
             }
         }
-        throw new SchemaLoomException("no driver could connect to database: " + config.getDatabaseType(), last);
+        throw new SchemaLoomException("cannot connect to database: " + config.getDatabaseType()
+                + "; driverId=" + lastDriverId + "; cause=" + causeMessage(last), last);
     }
 
     /** 按 URL 选择驱动；显式 driverId 会跳过前缀筛选并只尝试该驱动。 */
@@ -88,7 +91,14 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 last = e;
                 if (driverId != null) break;
             }
-        throw new SchemaLoomException("no driver could connect to " + url, last);
+        throw new SchemaLoomException("cannot connect to database: " + url + "; cause=" + causeMessage(last), last);
+    }
+
+    /** 保留连接失败的直接原因，便于宿主应用定位网络、认证或驱动版本问题。 */
+    private static String causeMessage(Throwable error) {
+        return error == null || error.getMessage() == null
+                ? error == null ? "unknown" : error.getClass().getSimpleName()
+                : error.getMessage();
     }
 
     /** 优先级越高越先尝试；同优先级按 id 排序，保证选择结果稳定。 */

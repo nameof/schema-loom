@@ -11,9 +11,22 @@ import java.nio.file.*;
 import java.util.*;
 
 public final class DriverDescriptorLoader {
+    private static final String DRIVER_DIR_PROPERTY = "schemaloom.driver-dir";
+    private static final String DRIVER_DIR_ENV = "SCHEMALOOM_DRIVER_DIR";
+
     /** 从 classpath 下的 drivers 资源目录加载驱动描述；非文件系统资源不支持动态读取。 */
     public List<DriverDescriptor> load() {
-        // 生产运行时，默认加载用户目录
+        String configured = System.getProperty(DRIVER_DIR_PROPERTY);
+        if (StrUtil.isBlank(configured)) configured = System.getenv(DRIVER_DIR_ENV);
+        if (StrUtil.isNotBlank(configured)) {
+            Path root = Paths.get(configured).toAbsolutePath().normalize();
+            if (!Files.isDirectory(root)) {
+                throw new SchemaLoomException("configured driver directory does not exist: " + root);
+            }
+            return load(root);
+        }
+
+        // 尝试加载用户目录
         Path external = Paths.get(System.getProperty("user.dir"), "drivers").toAbsolutePath().normalize();
         if (Files.isDirectory(external)) return load(external);
 

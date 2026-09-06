@@ -44,6 +44,26 @@ public class JdbcDriverLoaderTest {
         }
     }
 
+    @Test public void reportsConnectionFailureInsteadOfMissingDriver() throws Exception {
+        Path root = Files.createTempDirectory("schemaloom-driver-connect-failure");
+        writeDriver(root, "fixture", "8.0.36", 10, "[9.0,10.0)");
+        JdbcDriverLoader loader = new JdbcDriverLoader(root);
+        try {
+            DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, "host", 3306,
+                    "db", "user", "password", "fixture", null);
+            try {
+                loader.connect(config);
+                fail("应报告连接失败");
+            } catch (io.github.nameof.schemaloom.api.SchemaLoomException e) {
+                assertTrue(e.getMessage().startsWith("cannot connect to database:"));
+                assertFalse(e.getMessage().contains("no driver"));
+                assertTrue(e.getMessage().contains("server version is outside driver range"));
+            }
+        } finally {
+            loader.close();
+        }
+    }
+
     private static void writeDriver(Path root, String id, String version, int priority, String range) throws Exception {
         String jarName = id + ".jar";
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(root.resolve(jarName)))) {

@@ -7,6 +7,24 @@ import java.util.*;
 import static org.junit.Assert.*;
 
 public class DriverDescriptorLoaderTest {
+    @Test public void loadsConfiguredDriverDirectory() throws Exception {
+        Path root = Files.createTempDirectory("schemaloom-configured-drivers");
+        Path jar = Files.createFile(root.resolve("driver.jar"));
+        Files.write(root.resolve("mysql.properties"), Arrays.asList(
+                "id=mysql-configured", "databaseType=MYSQL", "driverClass=com.example.Driver",
+                "classpath=driver.jar"), StandardCharsets.UTF_8);
+        String previous = System.getProperty("schemaloom.driver-dir");
+        try {
+            System.setProperty("schemaloom.driver-dir", root.toString());
+            DriverDescriptor descriptor = new DriverDescriptorLoader().load().get(0);
+            assertEquals("mysql-configured", descriptor.getId());
+            assertEquals(jar.toAbsolutePath().normalize(), descriptor.getClasspath().get(0));
+        } finally {
+            if (previous == null) System.clearProperty("schemaloom.driver-dir");
+            else System.setProperty("schemaloom.driver-dir", previous);
+        }
+    }
+
     @Test public void loadsDescriptorAndResolvesRelativeClasspath() throws Exception {
         Path root = Files.createTempDirectory("schemaloom-drivers");
         Path jar = Files.createFile(root.resolve("driver.jar"));
