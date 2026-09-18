@@ -57,7 +57,7 @@ public final class TableInfo {
     }
 
     /** 从数据库列投影出数据读写所需的通用 Schema；结果在首次调用后缓存。 */
-    public RecordSchema getSchema() {
+    public RecordSchema toRecordSchema() {
         if (schema == null) {
             List<FieldSchema> fields = new ArrayList<FieldSchema>();
             for (ColumnInfo column : columns)

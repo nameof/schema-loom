@@ -106,7 +106,7 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     }
 
     private synchronized RecordSchema ensureSchema() {
-        if (tableSchema == null) tableSchema = ensureTableInfo().getSchema();
+        if (tableSchema == null) tableSchema = ensureTableInfo().toRecordSchema();
         return tableSchema;
     }
 

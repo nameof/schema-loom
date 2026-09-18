@@ -33,7 +33,7 @@ abstract class AbstractDialect implements DatabaseDialect {
         Map<String, ColumnInfo> columns = new HashMap<>();
         for (ColumnInfo column : source.getColumns())
             columns.put(column.getName().toLowerCase(Locale.ENGLISH), column);
-        return renderCreateTableSql(table, source.getSchema(), columns);
+        return renderCreateTableSql(table, source.toRecordSchema(), columns);
     }
 
     @Override

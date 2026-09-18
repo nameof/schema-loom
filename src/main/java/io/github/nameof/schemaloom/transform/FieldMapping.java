@@ -43,7 +43,7 @@ public final class FieldMapping {
 
     /** 映射源表元数据及其 Schema */
     public static TableInfo mapTableInfo(TableInfo source, List<FieldMapping> mappings) {
-        List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source.getSchema()) : mappings;
+        List<FieldMapping> ms = mappings == null || mappings.isEmpty() ? identity(source.toRecordSchema()) : mappings;
         Map<String, ColumnInfo> columns = new HashMap<String, ColumnInfo>();
         for (ColumnInfo column : source.getColumns())
             columns.put(column.getName().toLowerCase(Locale.ENGLISH), column);

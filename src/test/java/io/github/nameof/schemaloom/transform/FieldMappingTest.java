@@ -51,7 +51,7 @@ public class FieldMappingTest {
                 Collections.<ConstraintInfo>emptyList(), null);
         assertEquals(LogicalType.STRING, new TableInfo(new QualifiedTableName(null, null, "orders"), false,
                 Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null)),
-                null, Collections.<IndexInfo>emptyList(), null).getSchema().field("id").getLogicalType());
+                null, Collections.<IndexInfo>emptyList(), null).toRecordSchema().field("id").getLogicalType());
     }
 
 }

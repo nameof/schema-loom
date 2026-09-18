@@ -32,7 +32,7 @@ public class JdbcMetadataContractTest {
         assertFalse(table.isView());
         TableInfo view = service.getTable(provider, new QualifiedTableName(null, "APP", "CUSTOMER_NAMES"));
         assertTrue(view.isView());
-        assertEquals(LogicalType.INT32, view.getSchema().getFields().get(0).getLogicalType());
+        assertEquals(LogicalType.INT32, view.toRecordSchema().getFields().get(0).getLogicalType());
         assertEquals("orders table", table.getRemarks());
         assertEquals(LogicalType.INT64, table.getColumns().get(0).getLogicalType());
         assertTrue(table.getColumns().get(0).isAutoIncremented());
