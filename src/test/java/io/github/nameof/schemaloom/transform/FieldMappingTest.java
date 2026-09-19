@@ -5,17 +5,23 @@ import io.github.nameof.schemaloom.metadata.*;
 import org.junit.Test;
 
 import java.util.*;
+import java.sql.Types;
 
 import static org.junit.Assert.*;
 
 public class FieldMappingTest {
+    @Test(expected = IllegalArgumentException.class)
+    public void rejectsMissingJdbcType() {
+        new ColumnInfo("id", "INT", null, LogicalType.INT32, Types.NULL, 1, true, null, null, null);
+    }
+
     @Test
     public void preservesAndMapsStructuralMetadata() {
         QualifiedTableName referenced = new QualifiedTableName(null, "APP", "CUSTOMERS");
         TableInfo source = new TableInfo(new QualifiedTableName(null, "APP", "ORDERS"), false, "TABLE",
                 Arrays.asList(
-                        new ColumnInfo("id", "INT", null, LogicalType.INT32, 1, false, null, null, null, null, null, false, false),
-                        new ColumnInfo("customer_id", "INT", null, LogicalType.INT32, 2, false, null, null, null, null, null, false, false)),
+                        new ColumnInfo("id", "INT", null, LogicalType.INT32, Types.INTEGER, 1, false, null, null, null, null, null, false, false),
+                        new ColumnInfo("customer_id", "INT", null, LogicalType.INT32, Types.INTEGER, 2, false, null, null, null, null, null, false, false)),
                 new PrimaryKeyInfo("pk_orders", Collections.singletonList("id")),
                 Collections.singletonList(new IndexInfo("ix_customer", false, Collections.singletonList("customer_id"))),
                 Collections.singletonList(new ForeignKeyInfo("fk_customer", referenced,
@@ -31,12 +37,13 @@ public class FieldMappingTest {
         assertEquals(Collections.singletonList("buyer_id"), mapped.getForeignKeys().get(0).getColumns());
         assertEquals(Collections.singletonList("id"), mapped.getForeignKeys().get(0).getReferencedColumns());
         assertEquals(Collections.singletonList("buyer_id"), mapped.getConstraints().get(0).getColumns());
+        assertEquals(Types.INTEGER, mapped.getColumns().get(0).getJdbcType());
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsForeignKeyWithUnmappedLocalColumn() {
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "orders"), false, "TABLE",
-                Collections.singletonList(new ColumnInfo("customer_id", "INT", null, LogicalType.INT32, 1, true, null, null, null)), null, Collections.<IndexInfo>emptyList(),
+                Collections.singletonList(new ColumnInfo("customer_id", "INT", null, LogicalType.INT32, Types.INTEGER, 1, true, null, null, null)), null, Collections.<IndexInfo>emptyList(),
                 Collections.singletonList(new ForeignKeyInfo("fk", new QualifiedTableName(null, null, "customers"),
                         Collections.singletonList("customer_id"), Collections.singletonList("id"), null, null)),
                 Collections.<ConstraintInfo>emptyList(), null);
@@ -46,11 +53,11 @@ public class FieldMappingTest {
     @Test
     public void derivesRecordSchemaFromColumns() {
         new TableInfo(new QualifiedTableName(null, null, "orders"), false, "TABLE",
-                Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null)),
+                Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, Types.VARCHAR, 1, true, null, null, null)),
                 null, Collections.<IndexInfo>emptyList(), Collections.<ForeignKeyInfo>emptyList(),
                 Collections.<ConstraintInfo>emptyList(), null);
         assertEquals(LogicalType.STRING, new TableInfo(new QualifiedTableName(null, null, "orders"), false,
-                Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null)),
+                Collections.singletonList(new ColumnInfo("id", "VARCHAR", null, LogicalType.STRING, Types.VARCHAR, 1, true, null, null, null)),
                 null, Collections.<IndexInfo>emptyList(), null).toRecordSchema().field("id").getLogicalType());
     }
 

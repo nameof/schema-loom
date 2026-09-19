@@ -2,6 +2,7 @@ package io.github.nameof.schemaloom.metadata;
 
 import io.github.nameof.schemaloom.api.FieldSchema;
 import io.github.nameof.schemaloom.api.RecordSchema;
+import io.github.nameof.schemaloom.api.LogicalTypeCatalog;
 
 import java.util.*;
 
@@ -20,14 +21,15 @@ public final class TableInfo {
 
     /** 从通用 Schema 创建无额外数据库属性的表定义。 */
     public TableInfo(QualifiedTableName name, boolean view, RecordSchema schema) {
-        this(name, view, fields(schema), primaryKey(schema), Collections.<IndexInfo>emptyList(), null);
+        this(name, view, columnsFromSchema(schema), primaryKey(schema), Collections.<IndexInfo>emptyList(), null);
     }
 
-    private static List<ColumnInfo> fields(RecordSchema schema) {
+    private static List<ColumnInfo> columnsFromSchema(RecordSchema schema) {
         if (schema == null) throw new IllegalArgumentException("记录 Schema 不能为空");
         List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
         for (FieldSchema field : schema.getFields())
-            columns.add(new ColumnInfo(field, null, null, columns.size() + 1, null, null, false, false));
+            columns.add(new ColumnInfo(field, null, null, columns.size() + 1,
+                    LogicalTypeCatalog.get(field.getLogicalType()).jdbcSqlType(), null, null, false, false));
         return columns;
     }
 

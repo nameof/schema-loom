@@ -7,6 +7,7 @@ import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.DatabaseMetadataService;
 import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.source.JdbcTableSource;
+import io.github.nameof.schemaloom.source.LargeFieldPolicy;
 import io.github.nameof.schemaloom.source.MemorySource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import io.github.nameof.schemaloom.target.MemoryTarget;
@@ -185,8 +186,8 @@ public class EtlTaskTest {
         DatabaseConnectionInfo targetConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         EtlResult result = EtlTask.builder()
-                .source(new JdbcTableSource(sourceConfig, "jsh_account"))
-                .target(new JdbcTableTarget(targetConfig, "sss2b2"))
+                .source(new JdbcTableSource(sourceConfig, "jsh_account", 10, LargeFieldPolicy.skipAllLargeFields()))
+                .target(new JdbcTableTarget(targetConfig, "sss22b2"))
                 .targetMode(TargetMode.REPLACE)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);

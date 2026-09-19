@@ -8,6 +8,7 @@ import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.metadata.PrimaryKeyInfo;
 
 import java.util.*;
+import java.sql.Types;
 
 import org.junit.Test;
 
@@ -69,8 +70,8 @@ public class DialectTest {
         FieldSchema created = new FieldSchema("created", LogicalType.TIMESTAMP, true, null, null, null);
         FieldSchema active = new FieldSchema("active", LogicalType.BOOLEAN, false, null, null, null);
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE", Arrays.asList(
-                new ColumnInfo("created", "TIMESTAMP", null, LogicalType.TIMESTAMP, 1, true, null, null, null, "SYSDATE", null, false, false),
-                new ColumnInfo("active", "BOOLEAN", null, LogicalType.BOOLEAN, 2, false, null, null, null, "TRUE", null, false, false)),
+                new ColumnInfo("created", "TIMESTAMP", null, LogicalType.TIMESTAMP, Types.TIMESTAMP, 1, true, null, null, null, "SYSDATE", null, false, false),
+                new ColumnInfo("active", "BOOLEAN", null, LogicalType.BOOLEAN, Types.BOOLEAN, 2, false, null, null, null, "TRUE", null, false, false)),
                 null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ForeignKeyInfo>emptyList(),
                 Collections.<io.github.nameof.schemaloom.metadata.ConstraintInfo>emptyList(), null);
@@ -81,7 +82,7 @@ public class DialectTest {
 
     @Test(expected = IllegalArgumentException.class)
     public void rejectsUnsafeDefaultExpression() {
-        ColumnInfo column = new ColumnInfo("x", "INT", null, LogicalType.INT32, 1, true, null, null, null,
+        ColumnInfo column = new ColumnInfo("x", "INT", null, LogicalType.INT32, Types.INTEGER, 1, true, null, null, null,
                 "other_column", null, false, false);
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
                 Collections.singletonList(column), null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
@@ -92,7 +93,7 @@ public class DialectTest {
 
     @Test
     public void quotesUnquotedStringDefaultFromJdbcMetadata() {
-        ColumnInfo column = new ColumnInfo("remark", "VARCHAR", null, LogicalType.STRING, 1, true, 32, null, null,
+        ColumnInfo column = new ColumnInfo("remark", "VARCHAR", null, LogicalType.STRING, Types.VARCHAR, 1, true, 32, null, null,
                 "remarksssss", null, false, false);
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
                 Collections.singletonList(column), null, Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
@@ -108,8 +109,8 @@ public class DialectTest {
                 new FieldSchema("id", LogicalType.INT32, false, null, null, null),
                 new FieldSchema("total", LogicalType.INT32, true, null, null, null));
         List<ColumnInfo> columns = Arrays.asList(
-                new ColumnInfo("id", "INT", null, LogicalType.INT32, 1, false, null, null, null, null, null, true, false),
-                new ColumnInfo("total", "INT", null, LogicalType.INT32, 2, true, null, null, null, null, "(id + 1)", false, true));
+                new ColumnInfo("id", "INT", null, LogicalType.INT32, Types.INTEGER, 1, false, null, null, null, null, null, true, false),
+                new ColumnInfo("total", "INT", null, LogicalType.INT32, Types.INTEGER, 2, true, null, null, null, null, "(id + 1)", false, true));
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, "TABLE",
                 columns, new PrimaryKeyInfo(null, Collections.singletonList("id")),
                 Collections.<io.github.nameof.schemaloom.metadata.IndexInfo>emptyList(),
@@ -128,9 +129,9 @@ public class DialectTest {
                 new io.github.nameof.schemaloom.metadata.IndexInfo("ix_normal", false, Arrays.asList("last_name", "first_name")),
                 new io.github.nameof.schemaloom.metadata.IndexInfo("ux_email", true, Collections.singletonList("email")));
         List<ColumnInfo> columns = Arrays.asList(
-                new ColumnInfo("last_name", "VARCHAR", null, LogicalType.STRING, 1, true, null, null, null),
-                new ColumnInfo("first_name", "VARCHAR", null, LogicalType.STRING, 2, true, null, null, null),
-                new ColumnInfo("email", "VARCHAR", null, LogicalType.STRING, 3, true, null, null, null));
+                new ColumnInfo("last_name", "VARCHAR", null, LogicalType.STRING, Types.VARCHAR, 1, true, null, null, null),
+                new ColumnInfo("first_name", "VARCHAR", null, LogicalType.STRING, Types.VARCHAR, 2, true, null, null, null),
+                new ColumnInfo("email", "VARCHAR", null, LogicalType.STRING, Types.VARCHAR, 3, true, null, null, null));
         TableInfo source = new TableInfo(new QualifiedTableName(null, null, "source"), false, columns, null, indexes, null);
         List<String> sql = new DialectRegistry().get(DatabaseType.MYSQL).indexSql("`t`", indexes);
         assertTrue(sql.get(0).contains("INDEX `ix_normal` ON `t` (`last_name`, `first_name`)") );

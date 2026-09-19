@@ -571,8 +571,8 @@ mvn -Pperformance test
 - 资源配额：连接、内存、线程、文件限制
 - CsvSource/CsvTarget 支持多行引号字段:CsvSource.read() 使用 r.readLine() 逐行读取，parse() 也只处理单行。当 CSV 字段包含换行符（如 "line1\nline2"），会导致解析错乱。同时 CsvTarget.escape() 不检测字段值中的换行符，也不会用引号包裹，导致写出的 CSV 不可被标准解析器读取。
 - 支持指定数据库编码、内容编码
-- 大字段深入：已支持 BLOB 默认跳过、CLOB/TEXT/LONGTEXT 默认复制、按字段或类型跳过，以及通过
-  `LargeFieldPolicy.skipLargeFields()` 跳过标准二进制和长文本类型；
+- 大字段深入：已支持仅 BLOB 默认跳过、CLOB/TEXT/LONGTEXT 默认复制、按字段或类型跳过，以及通过
+  `LargeFieldPolicy.skipAllLargeFields()` 跳过标准二进制和长文本类型；
   - 未完成工作例如STREAM，参考doc/LARGE_FIELD_PROCESSING_STATUS.md
 
 ## 低优先级TODO

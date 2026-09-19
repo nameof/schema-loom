@@ -2,6 +2,7 @@ package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.DataRecord;
 import io.github.nameof.schemaloom.api.EtlResult;
+import io.github.nameof.schemaloom.api.LogicalType;
 import io.github.nameof.schemaloom.api.RecordBatch;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
 import io.github.nameof.schemaloom.engine.EtlTask;
@@ -12,6 +13,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -19,6 +21,22 @@ import java.util.List;
 import static org.junit.Assert.*;
 
 public class JdbcLargeFieldPolicyTest {
+    @Test
+    public void defaultsSkipOnlyBlob() {
+        LargeFieldPolicy policy = LargeFieldPolicy.defaults();
+        assertEquals(LargeFieldPolicy.Action.SKIP, policy.action("blob", Types.BLOB, "BLOB"));
+        assertEquals(LargeFieldPolicy.Action.COPY, policy.action("clob", Types.CLOB, "CLOB"));
+        assertEquals(LargeFieldPolicy.Action.COPY, policy.action("binary", Types.VARBINARY, "VARBINARY"));
+    }
+
+    @Test
+    public void jdbcLargeTypesKeepTheirLogicalCategoryWithoutChangingJdbcType() {
+        assertEquals(LogicalType.STRING, JdbcTypes.logical(Types.LONGVARCHAR));
+        assertEquals(LogicalType.STRING, JdbcTypes.logical(Types.CLOB));
+        assertEquals(LogicalType.BINARY, JdbcTypes.logical(Types.LONGVARBINARY));
+        assertEquals(LogicalType.BINARY, JdbcTypes.logical(Types.BLOB));
+    }
+
     @Test
     public void defaultsSkipBlobAndCopyClobAndReportFieldStatistics() throws Exception {
         ConnectionProvider provider = provider("default");
@@ -55,7 +73,7 @@ public class JdbcLargeFieldPolicyTest {
     }
 
     @Test
-    public void skipLargeFieldsSkipsBinaryAndLongTextButCopiesShortText() throws Exception {
+    public void skipAllLargeFieldsSkipsBinaryAndLongTextButCopiesShortText() throws Exception {
         ConnectionProvider provider = provider("skip-large-fields");
         setup(provider.getConnection());
         LargeFieldPolicy policy = LargeFieldPolicy.skipAllLargeFields();

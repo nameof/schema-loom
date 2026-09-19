@@ -37,6 +37,7 @@ public class JdbcMetadataContractTest {
         assertEquals(LogicalType.INT64, table.getColumns().get(0).getLogicalType());
         assertTrue(table.getColumns().get(0).isAutoIncremented());
         assertEquals("CHARACTER VARYING", table.getColumns().get(2).getTypeName());
+        assertEquals(Types.VARCHAR, table.getColumns().get(2).getJdbcType());
         assertEquals("display name", table.getColumns().get(2).getRemarks());
         assertEquals("'new'", table.getColumns().get(2).getDefaultValue());
         assertEquals(Integer.valueOf(100), table.getColumns().get(2).getLength());
@@ -44,6 +45,7 @@ public class JdbcMetadataContractTest {
         assertEquals(Integer.valueOf(10), table.getColumns().get(3).getPrecision());
         assertNull(table.getColumns().get(3).getLength());
         assertEquals(Integer.valueOf(2), table.getColumns().get(3).getScale());
+        assertEquals(Types.DECIMAL, table.getColumns().get(3).getJdbcType());
         assertEquals(Collections.singletonList("ID"), table.getPrimaryKey().getColumns());
         assertFalse(table.getIndexes().isEmpty());
         assertTrue(table.getIndexes().stream().anyMatch(index -> "IX_ORDERS_NAME".equals(index.getName())));

@@ -34,8 +34,8 @@ LargeFieldPolicy policy = LargeFieldPolicy.builder()
 - `COPY`：读取并复制字段值。
 - `SKIP`：不读取字段值，输出 `null`。
 
-默认策略为 `BLOB` 跳过，`CLOB`、`TEXT`、`LONGTEXT` 复制。用户仍可按字段名、原生类型名或 JDBC 类型覆盖该默认行为。
-如不需要迁移超长数据，可直接使用 `LargeFieldPolicy.skipLargeFields()`，跳过标准二进制类型以及
+默认策略仅为 JDBC `BLOB` 跳过，`CLOB`、`TEXT`、`LONGTEXT` 以及其他类型复制。用户仍可按字段名、原生类型名或 JDBC 类型覆盖该默认行为。
+如不需要迁移超长数据，可直接使用 `LargeFieldPolicy.skipAllLargeFields()`，跳过标准二进制类型以及
 `TEXT`、`TINYTEXT`、`MEDIUMTEXT`、`LONGTEXT`、`CLOB` 等长文本类型，普通短文本仍会复制。
 
 ### 2.2 阈值处理
@@ -110,7 +110,7 @@ result.getTotalSkippedRows();
 
 ### 4.4 跨数据库类型归一化
 
-不同数据库对 `TEXT`、`LONGTEXT`、`CLOB`、长二进制类型的 JDBC 类型和原生类型名返回可能不同。当前主要依赖 JDBC 类型和 `getColumnTypeName()`，还需要在方言层建立统一的类型归一化和契约测试。
+数据库列元数据同时保留 `LogicalType`、标准 JDBC 类型号和原生类型名。`LogicalType` 只表示跨库数据语义，不能用于反推源字段 JDBC 类型；大字段策略和 `setNull` 使用保留的 JDBC 类型号。
 
 ### 4.5 实时进度统计
 

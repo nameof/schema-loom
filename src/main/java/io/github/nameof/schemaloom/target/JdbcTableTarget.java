@@ -26,6 +26,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private final DatabaseDialect dialect;
     private final MetadataErrorPolicy metadataErrorPolicy;
     private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
+    private final Map<String, Integer> jdbcTypes = new HashMap<String, Integer>();
     private RecordSchema schema;
     private boolean prepared;
     private boolean replaceMode;
@@ -64,6 +65,10 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         targetWriteFailed = false;
         temporaryCreated = false;
         TableInfo tableMetadata = descriptor.getTableInfo();
+        jdbcTypes.clear();
+        if (tableMetadata != null)
+            for (ColumnInfo column : tableMetadata.getColumns())
+                jdbcTypes.put(column.getName().toLowerCase(Locale.ENGLISH), column.getJdbcType());
         validateCapabilities(schema);
         Connection c = provider.getConnection();
         try {
@@ -210,7 +215,9 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     private void setValue(PreparedStatement ps, int index, FieldSchema field, Object value) throws SQLException {
-        JdbcValueCodec.write(ps, index, field, value);
+        Integer jdbcType = jdbcTypes.get(field.getName().toLowerCase(Locale.ENGLISH));
+        if (value == null && jdbcType != null) ps.setNull(index, jdbcType);
+        else JdbcValueCodec.write(ps, index, field, value);
     }
 
     public void close() {

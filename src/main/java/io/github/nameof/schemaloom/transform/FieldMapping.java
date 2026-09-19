@@ -54,7 +54,7 @@ public final class FieldMapping {
             FieldSchema mappedField = new FieldSchema(mapping.target, column.getLogicalType(), column.isNullable(),
                     column.getLength(), column.getPrecision(), column.getScale());
             mapped.add(new ColumnInfo(mappedField, column.getTypeName(), column.getRemarks(),
-                    column.getOrdinal(),
+                    column.getOrdinal(), column.getJdbcType(),
                     column.getDefaultValue(), column.getGeneratedExpression(), column.isAutoIncremented(), column.isGenerated()));
         }
         Map<String, String> names = new HashMap<String, String>();

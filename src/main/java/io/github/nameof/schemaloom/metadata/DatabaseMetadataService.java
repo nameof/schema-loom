@@ -161,7 +161,9 @@ public final class DatabaseMetadataService {
         List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
         for (Column column : table.getColumns()) {
             Integer typeNumber = column.getColumnDataType().getJavaSqlType().getVendorTypeNumber();
-            LogicalType logicalType = JdbcTypes.logical(typeNumber == null ? java.sql.Types.VARCHAR : typeNumber);
+            if (typeNumber == null || typeNumber == java.sql.Types.NULL)
+                throw new SchemaLoomException("列缺少有效 JDBC 类型: " + column.getName());
+            LogicalType logicalType = JdbcTypes.logical(typeNumber);
             Integer size = column.getSize();
             Integer length = logicalType == LogicalType.STRING || logicalType == LogicalType.BINARY ? size : null;
             Integer precision = logicalType == LogicalType.DECIMAL ? size : null;
@@ -169,7 +171,7 @@ public final class DatabaseMetadataService {
             String value = column.getDefaultValue();
             FieldSchema field = new FieldSchema(column.getName(), logicalType, column.isNullable(), length, precision, scale);
             ColumnInfo info = new ColumnInfo(field, column.getColumnDataType().getDatabaseSpecificTypeName(), column.getRemarks(),
-                    column.getOrdinalPosition(),
+                    column.getOrdinalPosition(), typeNumber,
                     column.isGenerated() ? null : value, column.isGenerated() ? value : null,
                     column.isAutoIncremented(), column.isGenerated());
             columns.add(info);
