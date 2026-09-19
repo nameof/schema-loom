@@ -26,8 +26,8 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private final DatabaseDialect dialect;
     private final MetadataErrorPolicy metadataErrorPolicy;
     private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
-    private final Map<String, Integer> jdbcTypes = new HashMap<String, Integer>();
     private RecordSchema schema;
+    private TableInfo tableInfo;
     private boolean prepared;
     private boolean replaceMode;
     private boolean targetWriteFailed;
@@ -64,11 +64,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         replaceMode = mode == TargetMode.REPLACE;
         targetWriteFailed = false;
         temporaryCreated = false;
-        TableInfo tableMetadata = descriptor.getTableInfo();
-        jdbcTypes.clear();
-        if (tableMetadata != null)
-            for (ColumnInfo column : tableMetadata.getColumns())
-                jdbcTypes.put(column.getName().toLowerCase(Locale.ENGLISH), column.getJdbcType());
+        tableInfo = descriptor.getTableInfo();
         validateCapabilities(schema);
         Connection c = provider.getConnection();
         try {
@@ -88,15 +84,15 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             }
             // Create or validate table
             if (!exists) {
-                c.createStatement().executeUpdate(tableMetadata == null
-                        ? dialect.createTableSql(q, schema) : dialect.createTableSql(q, tableMetadata));
-                if (tableMetadata != null) {
-                    executeMetadataSql(c, dialect.commentSql(q, tableMetadata), "注释");
-                    executeMetadataSql(c, dialect.indexSql(q, tableMetadata.getIndexes()), "索引");
+                c.createStatement().executeUpdate(tableInfo == null
+                        ? dialect.createTableSql(q, schema) : dialect.createTableSql(q, tableInfo));
+                if (tableInfo != null) {
+                    executeMetadataSql(c, dialect.commentSql(q, tableInfo), "注释");
+                    executeMetadataSql(c, dialect.indexSql(q, tableInfo.getIndexes()), "索引");
                 }
             } else {
                 validateAppend(existingTable, schema);
-                if (tableMetadata != null) migrateIndexes(c, q, tableMetadata, existingTable);
+                if (tableInfo != null) migrateIndexes(c, q, tableInfo, existingTable);
             }
             prepared = true;
             List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
@@ -215,9 +211,15 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     private void setValue(PreparedStatement ps, int index, FieldSchema field, Object value) throws SQLException {
-        Integer jdbcType = jdbcTypes.get(field.getName().toLowerCase(Locale.ENGLISH));
-        if (value == null && jdbcType != null) ps.setNull(index, jdbcType);
-        else JdbcValueCodec.write(ps, index, field, value);
+        if (value == null && tableInfo != null) {
+            for (ColumnInfo column : tableInfo.getColumns()) {
+                if (column.getName().equalsIgnoreCase(field.getName())) {
+                    ps.setNull(index, column.getJdbcType());
+                    return;
+                }
+            }
+        }
+        JdbcValueCodec.write(ps, index, field, value);
     }
 
     public void close() {

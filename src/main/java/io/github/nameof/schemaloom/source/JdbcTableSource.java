@@ -116,13 +116,16 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     }
 
     private synchronized TableInfo ensureTableInfo() {
-        // 元数据只读取一次，并在返回前应用“策略可能产生 null”的可空性修正。
-        if (tableInfo == null) tableInfo = effectiveTableInfo(new DatabaseMetadataService().getTable(ensureProvider(), table));
+        if (tableInfo == null)
+            tableInfo = applyNullabilityTableInfo(new DatabaseMetadataService().getTable(ensureProvider(), table));
         return tableInfo;
     }
 
-    private TableInfo effectiveTableInfo(TableInfo source) {
-        List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
+    /**
+     * 对TableInfo进行转换，不同策略对字段可空的影响不同，所以改写原始TableInfo
+     */
+    private TableInfo applyNullabilityTableInfo(TableInfo source) {
+        List<ColumnInfo> columns = new ArrayList<>();
         for (ColumnInfo column : source.getColumns()) {
             // 结构列和数据 Schema 同步调整，确保建表和写入看到一致的 nullable 定义。
             // 大字段策略可能产生 null，因此对外 Schema 必须反映这种可空性。
