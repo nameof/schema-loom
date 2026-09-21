@@ -19,9 +19,9 @@ public final class TableInfo {
     private final List<ConstraintInfo> constraints;
     private volatile RecordSchema schema;
 
-    /** 从通用 Schema 创建无额外数据库属性的表定义。 */
+    /** 从通用 Schema 创建表定义。 */
     public TableInfo(QualifiedTableName name, boolean view, RecordSchema schema) {
-        this(name, view, columnsFromSchema(schema), primaryKey(schema), Collections.<IndexInfo>emptyList(), null);
+        this(name, view, columnsFromSchema(schema), null, Collections.<IndexInfo>emptyList(), null);
     }
 
     private static List<ColumnInfo> columnsFromSchema(RecordSchema schema) {
@@ -31,10 +31,6 @@ public final class TableInfo {
             columns.add(new ColumnInfo(field, null, null, columns.size() + 1,
                     LogicalTypeCatalog.get(field.getLogicalType()).jdbcSqlType(), null, null, false, false));
         return columns;
-    }
-
-    private static PrimaryKeyInfo primaryKey(RecordSchema schema) {
-        return schema.getPrimaryKeyFields().isEmpty() ? null : new PrimaryKeyInfo(null, schema.getPrimaryKeyFields());
     }
 
     public TableInfo(QualifiedTableName name, boolean view, List<ColumnInfo> columns,
@@ -64,8 +60,7 @@ public final class TableInfo {
             List<FieldSchema> fields = new ArrayList<FieldSchema>();
             for (ColumnInfo column : columns)
                 fields.add(column.getFieldSchema());
-            List<String> keys = primaryKey == null ? Collections.<String>emptyList() : primaryKey.getColumns();
-            schema = new RecordSchema(fields, keys);
+            schema = new RecordSchema(fields);
         }
         return schema;
     }

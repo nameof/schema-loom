@@ -109,7 +109,7 @@ for (ColumnInfo column : orders.getColumns()) {
 
 `MetadataQuery` 的表名模式默认是 `%`；当前实现按大小写不敏感方式匹配，并将 `%` 视为任意字符、`_` 视为单个字符。`TableInfo` 还提供 `getPrimaryKey()`、`getForeignKeys()`、`getIndexes()`、`getConstraints()`、`getRemarks()` 和 `isView()` 等结构信息。
 
-字段模型分为两层：`FieldSchema` 表示跨数据源通用的字段信息；`ColumnInfo` 表示数据库列，并额外包含原生类型名、标准 JDBC 类型号、注释、默认值、自增和生成列信息。`LogicalType` 只表示跨库数据语义，不能反推出源列的 JDBC 类型。`TableInfo` 只保存 `ColumnInfo`，其 `getSchema()` 从列定义派生出 `RecordSchema`，不会同时接收两份字段定义。非数据库数据源只需提供 `RecordSchema`。
+字段模型分为两层：`FieldSchema` 表示跨数据源通用的字段信息；`ColumnInfo` 表示数据库列，并额外包含原生类型名、标准 JDBC 类型号、注释、默认值、自增和生成列信息。`LogicalType` 只表示跨库数据语义，不能反推出源列的 JDBC 类型。`TableInfo` 只保存 `ColumnInfo`，其 `toRecordSchema()` 从列定义派生出不含数据库约束的 `RecordSchema`；主键、索引、外键和约束只保留在 `TableInfo` 中。非数据库数据源只需提供 `RecordSchema`。
 
 统计 API 使用数据库系统目录，行数可能是近似值或依赖最近一次统计；长度单位为字节，Schema 的总数据长度不包含索引。统计字段缺失时返回 `0`，原因可能是真实值为零、统计尚未收集、存储引擎不提供或当前账号没有对应系统视图权限。
 

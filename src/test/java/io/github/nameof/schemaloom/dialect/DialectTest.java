@@ -2,10 +2,7 @@ package io.github.nameof.schemaloom.dialect;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseType;
-import io.github.nameof.schemaloom.metadata.QualifiedTableName;
-import io.github.nameof.schemaloom.metadata.ColumnInfo;
-import io.github.nameof.schemaloom.metadata.TableInfo;
-import io.github.nameof.schemaloom.metadata.PrimaryKeyInfo;
+import io.github.nameof.schemaloom.metadata.*;
 
 import java.util.*;
 import java.sql.Types;
@@ -17,11 +14,16 @@ import static org.junit.Assert.*;
 public class DialectTest {
     @Test
     public void quotesAndCreatesPrimaryKey() {
-        RecordSchema s = new RecordSchema(Arrays.asList(new FieldSchema("id", LogicalType.INT32, false, null, null, null)), Collections.singletonList("id"));
+        RecordSchema s = new RecordSchema(Arrays.asList(new FieldSchema("id", LogicalType.INT32, false, null, null, null)));
         assertEquals("`we``ird`", new DialectRegistry().get(DatabaseType.MYSQL).quote("we`ird"));
         assertEquals("`shop`.`sales`.`orders`", new DialectRegistry().get(DatabaseType.MYSQL)
                 .quote(new QualifiedTableName("shop", "sales", "orders")));
-        TableInfo table = new TableInfo(new QualifiedTableName(null, null, "t"), false, s);
+        TableInfo table = new TableInfo(new QualifiedTableName(null, null, "t"), false, "TABLE",
+                Collections.singletonList(new ColumnInfo("id", "INT", null, LogicalType.INT32,
+                        Types.INTEGER, 1, false, null, null, null)),
+                new PrimaryKeyInfo(null, Collections.singletonList("id")),
+                Collections.<IndexInfo>emptyList(), Collections.<ForeignKeyInfo>emptyList(),
+                Collections.<ConstraintInfo>emptyList(), null);
         assertTrue(new DialectRegistry().get(DatabaseType.SQL_SERVER).createTableSql("\"t\"", table).contains("PRIMARY KEY"));
     }
 

@@ -28,18 +28,19 @@ abstract class AbstractDialect implements DatabaseDialect {
     }
 
     @Override
-    public String createTableSql(String table, TableInfo source) {
-        if (source == null) throw new IllegalArgumentException("source table metadata is required");
+    public String createTableSql(String table, TableInfo sourceTable) {
+        if (sourceTable == null) throw new IllegalArgumentException("source table metadata is required");
         Map<String, ColumnInfo> columns = new HashMap<>();
-        for (ColumnInfo column : source.getColumns())
+        for (ColumnInfo column : sourceTable.getColumns())
             columns.put(column.getName().toLowerCase(Locale.ENGLISH), column);
-        return renderCreateTableSql(table, source.toRecordSchema(), columns);
+        List<String> primaryKey = sourceTable.getPrimaryKey() == null ? Collections.emptyList() : sourceTable.getPrimaryKey().getColumns();
+        return renderCreateTableSql(table, sourceTable.toRecordSchema(), columns, primaryKey);
     }
 
     @Override
     public String createTableSql(String table, RecordSchema source) {
         if (source == null) throw new IllegalArgumentException("record schema is required");
-        return renderCreateTableSql(table, source, null);
+        return renderCreateTableSql(table, source, null, Collections.emptyList());
     }
 
     /**
@@ -78,7 +79,8 @@ abstract class AbstractDialect implements DatabaseDialect {
     }
 
 
-    private String renderCreateTableSql(String table, RecordSchema s, Map<String, ColumnInfo> metadata) {
+    private String renderCreateTableSql(String table, RecordSchema s, Map<String, ColumnInfo> metadata,
+                                        List<String> primaryKeyFields) {
         StringBuilder b = new StringBuilder("CREATE TABLE ").append(table).append(" (");
         for (int i = 0; i < s.getFields().size(); i++) {
             if (i > 0) b.append(", ");
@@ -98,11 +100,11 @@ abstract class AbstractDialect implements DatabaseDialect {
             if (!f.isNullable() && (metadata == null || metadata.get(f.getName().toLowerCase(Locale.ENGLISH)) == null
                     || !metadata.get(f.getName().toLowerCase(Locale.ENGLISH)).isGenerated())) b.append(" NOT NULL");
         }
-        if (!s.getPrimaryKeyFields().isEmpty()) {
+        if (!primaryKeyFields.isEmpty()) {
             b.append(", PRIMARY KEY (");
-            for (int i = 0; i < s.getPrimaryKeyFields().size(); i++) {
+            for (int i = 0; i < primaryKeyFields.size(); i++) {
                 if (i > 0) b.append(", ");
-                b.append(quote(s.getPrimaryKeyFields().get(i)));
+                b.append(quote(primaryKeyFields.get(i)));
             }
             b.append(')');
         }
