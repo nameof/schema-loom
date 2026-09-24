@@ -163,6 +163,8 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 
 `JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。`REPLACE` 模式先写入 `<目标表>_tmp`，写入成功后 rename 切换正式表，失败时清理临时表并保留原目标表。
 
+JDBC Source、Target 和视图迁移在内部使用 Spring JDBC 执行适配层管理参数绑定、语句与结果集释放、异常转换；`JdbcTableTarget` 的每个写入批次使用独立短事务。该实现细节不出现在公共 API 中，LOB 的 `STREAM` 直传尚未开放。
+
 ### 3.2 JDBC 大字段策略
 
 大字段策略只配置在 JDBC Source，`Target` 和 `EtlTask` 无需判断数据库大字段类型。默认仅跳过

@@ -3,6 +3,7 @@ package io.github.nameof.schemaloom.source;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.dialect.*;
+import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
 import io.github.nameof.schemaloom.metadata.*;
 
 import java.sql.*;
@@ -30,6 +31,7 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     private volatile RecordSchema tableSchema;
     private volatile TableInfo tableInfo;
     private volatile ConnectionProvider provider;
+    private volatile JdbcExecutionAdapter execution;
     private volatile boolean closed;
 
     /**
@@ -96,7 +98,8 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
             opened = providerSupplier.get();
             // 表 Source 复用查询 Source 的读取、批处理和大字段策略实现。
             delegate = new JdbcQuerySource(opened, "SELECT * FROM " + dialect.quote(table),
-                    Collections.<Object>emptyList(), fetchSize, largeFieldPolicy);
+                    Collections.emptyList(), fetchSize, largeFieldPolicy);
+            execution = new JdbcExecutionAdapter(opened);
             provider = opened;
             return opened;
         } catch (RuntimeException e) {
@@ -145,22 +148,8 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     }
 
     public long count() {
-        try {
-            PreparedStatement statement = ensureProvider().getConnection().prepareStatement("SELECT COUNT(*) FROM " + dialect.quote(table));
-            try {
-                ResultSet result = statement.executeQuery();
-                try {
-                    if (!result.next()) throw new SQLException("count query returned no row");
-                    return result.getLong(1);
-                } finally {
-                    result.close();
-                }
-            } finally {
-                statement.close();
-            }
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot count JDBC table: " + e.getMessage(), e);
-        }
+        ensureProvider();
+        return execution.queryForLong("count table", "SELECT COUNT(*) FROM " + dialect.quote(table));
     }
 
     /** 读取委托批次，并将记录绑定到表 Schema 后再交给调用方。 */

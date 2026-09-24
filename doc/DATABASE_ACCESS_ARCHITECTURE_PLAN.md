@@ -90,6 +90,9 @@ JDBC 仍作为连接、驱动加载、语句执行和动态查询结果元数据
 - 使用 Spring JDBC 批处理能力写入，同时保留 SchemaLoom 错误策略和 batch 统计。
 - 查询 SQL 必须参数化；生成的标识符和 DDL 只能来自已验证的元数据和 `DatabaseDialect`。
 
+当前已通过内部 Spring JDBC 执行适配层统一 Query Source、Table Source、Table Target 和视图迁移的
+语句释放、参数绑定、异常转换与目标批次短事务。公共 API 不暴露 Spring 类型；LOB 的 `STREAM` 直传仍不在本阶段范围内。
+
 大字段需要显式值策略：
 
 - `TEXT` 和 `LONGTEXT` 可作为字符串复制；超出配置阈值时拒绝或流式处理。
@@ -114,7 +117,7 @@ JDBC 仍作为连接、驱动加载、语句执行和动态查询结果元数据
 1. 使用 SchemaCrawler 读取器和 DTO 映射器替换 `DatabaseMetadataService` 内部实现，保持现有公共 API。
 2. 扩展元数据 DTO 和测试，覆盖视图、注释、默认值、生成列、自增、索引、外键、约束和序列。
 3. 将 `JdbcTableSource` 和 `JdbcTableTarget` 的元数据决策统一接入 `DatabaseMetadataService`。
-4. 新增内部 Spring JDBC 执行适配层，迁移查询流式读取、批量写入和事务处理，不改变公共 ETL API。
+4. 已完成：新增内部 Spring JDBC 执行适配层，迁移查询流式读取、批量写入和事务处理，不改变公共 ETL API。
 5. 扩展 `DatabaseDialect`，实现视图、索引、外键、默认值、自增和注释 DDL 规则。
 6. 增加 BLOB/TEXT 值策略及跨数据库集成验证。
 
@@ -126,3 +129,5 @@ JDBC 仍作为连接、驱动加载、语句执行和动态查询结果元数据
 - 结果集遍历、连接清理、事务和批处理集中在内部执行层。
 - MySQL、Oracle、SQL Server 覆盖视图、外键、索引、默认值、自增、注释及所选 BLOB/TEXT 策略测试。
 - 源码和计划文档中不得记录连接串、账号、密码或其他敏感信息。
+
+三数据库真实集成验收依赖 `scripts/start-jdbc-integration-containers.ps1` 和本地 JDBC 驱动；未完成镜像或驱动配置时，不能将该验收项标记为完成。

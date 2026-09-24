@@ -3,6 +3,7 @@ package io.github.nameof.schemaloom.source;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.JdbcValueCodec;
 import io.github.nameof.schemaloom.driver.*;
+import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
 
 import java.sql.*;
 import java.time.*;
@@ -14,6 +15,7 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     private final List<Object> params;
     private final int fetchSize;
     private final LargeFieldPolicy largeFieldPolicy;
+    private final JdbcExecutionAdapter execution;
     // key 为结果集字段名，value 为该字段被置空的行数。
     private final Map<String, Long> skippedFieldRows = new LinkedHashMap<>();
     // 只统计正式 read()，preview() 不污染任务统计。
@@ -23,28 +25,15 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     /** 受限读取结果集，供表预览复用查询源的类型映射逻辑。 */
     List<DataRecord> readRows(int maxRows) {
         RecordSchema sc = recordSchema();
-        try {
-            PreparedStatement s = provider.getConnection().prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-            try {
-                s.setFetchSize(fetchSize);
-                s.setMaxRows(maxRows);
-                bind(s);
-                ResultSet r = s.executeQuery();
-                try {
-                    List<DataRecord> records = new ArrayList<DataRecord>();
-                    while (r.next()) {
-                        records.add(readRecord(r, r.getMetaData(), sc, true, false));
+        return execution.query("limited query", sql, params, fetchSize, maxRows,
+                new JdbcExecutionAdapter.ResultSetHandler<List<DataRecord>>() {
+                    public List<DataRecord> extractData(ResultSet resultSet) throws SQLException {
+                        List<DataRecord> records = new ArrayList<DataRecord>();
+                        ResultSetMetaData metadata = resultSet.getMetaData();
+                        while (resultSet.next()) records.add(readRecord(resultSet, metadata, sc, true, false));
+                        return records;
                     }
-                    return records;
-                } finally {
-                    r.close();
-                }
-            } finally {
-                s.close();
-            }
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot read limited query", e);
-        }
+                });
     }
 
     public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize) {
@@ -78,26 +67,16 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
         this.params = params == null ? Collections.<Object>emptyList() : new ArrayList<Object>(params);
         this.fetchSize = fetchSize;
         this.largeFieldPolicy = policy == null ? LargeFieldPolicy.defaults() : policy;
+        this.execution = new JdbcExecutionAdapter(p);
     }
 
     private RecordSchema recordSchema() {
-        if (schema == null) try {
-            PreparedStatement s = provider.getConnection().prepareStatement(sql);
-            try {
-                bind(s);
-                ResultSet r = s.executeQuery();
-                try {
-                    schema = readSchema(r.getMetaData());
-                } finally {
-                    r.close();
-                }
-            } finally {
-                s.close();
-            }
-            return schema;
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot inspect query", e);
-        }
+        if (schema == null) schema = execution.query("inspect query", sql, params, fetchSize, null,
+                new JdbcExecutionAdapter.ResultSetHandler<RecordSchema>() {
+                    public RecordSchema extractData(ResultSet resultSet) throws SQLException {
+                        return readSchema(resultSet.getMetaData());
+                    }
+                });
         return schema;
     }
 
@@ -113,10 +92,6 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
                     m.getColumnDisplaySize(i), m.getPrecision(i), m.getScale(i)));
         }
         return new RecordSchema(fs);
-    }
-
-    private void bind(PreparedStatement s) throws SQLException {
-        for (int i = 0; i < params.size(); i++) s.setObject(i + 1, params.get(i));
     }
 
     /** 不读取二进制字段，避免 BLOB/BINARY 被 JDBC 驱动物化到应用内存。 */
@@ -151,34 +126,22 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     public void read(BatchConsumer c) {
         RecordSchema sc = recordSchema();
         resetStatistics();
-        try {
-            PreparedStatement s = provider.getConnection().prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
-            try {
-                s.setFetchSize(fetchSize);
-                bind(s);
-                ResultSet r = s.executeQuery();
-                try {
-                    List<DataRecord> b = new ArrayList<DataRecord>();
-                    while (r.next()) {
-                        // 每一行先按字段策略读取，再放入批次交给 EtlTask。
-                        b.add(readRecord(r, r.getMetaData(), sc, false, true));
-                        incrementReadRows();
-                        if (b.size() == fetchSize) {
-                            // 达到批量大小立即回调，避免把整个结果集物化。
-                            c.accept(new RecordBatch(sc, b));
-                            b = new ArrayList<>();
-                        }
+        execution.query("read query", sql, params, fetchSize, null, new JdbcExecutionAdapter.ResultSetHandler<Void>() {
+            public Void extractData(ResultSet resultSet) throws SQLException {
+                ResultSetMetaData metadata = resultSet.getMetaData();
+                List<DataRecord> batch = new ArrayList<DataRecord>();
+                while (resultSet.next()) {
+                    batch.add(readRecord(resultSet, metadata, sc, false, true));
+                    incrementReadRows();
+                    if (batch.size() == fetchSize) {
+                        c.accept(new RecordBatch(sc, batch));
+                        batch = new ArrayList<DataRecord>();
                     }
-                    if (!b.isEmpty()) c.accept(new RecordBatch(sc, b));
-                } finally {
-                    r.close();
                 }
-            } finally {
-                s.close();
+                if (!batch.isEmpty()) c.accept(new RecordBatch(sc, batch));
+                return null;
             }
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot read query", e);
-        }
+        });
     }
 
     public void close() {

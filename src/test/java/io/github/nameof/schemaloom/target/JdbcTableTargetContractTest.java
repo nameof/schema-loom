@@ -6,6 +6,8 @@ import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import org.junit.Test;
 
 import java.sql.*;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.util.*;
 
 import static org.junit.Assert.*;
@@ -66,6 +68,54 @@ public class JdbcTableTargetContractTest {
         assertEquals(1, count(after, "ORDERS"));
         assertEquals(0, count(after, "ORDERS_TMP"));
         after.close();
+    }
+
+    @Test public void runtimeBindingFailureRollsBackWholeBatchAndRestoresAutoCommit() throws Exception {
+        final Connection connection = DriverManager.getConnection("jdbc:h2:mem:runtime_rollback;MODE=MySQL;DB_CLOSE_DELAY=-1");
+        connection.createStatement().execute("CREATE TABLE orders (id INT)");
+        final Connection bindingFailureConnection = (Connection) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[]{Connection.class}, (proxy, method, args) -> {
+                    try {
+                        Object value = method.invoke(connection, args);
+                        if (!"prepareStatement".equals(method.getName()) || !(value instanceof PreparedStatement)) return value;
+                        PreparedStatement statement = (PreparedStatement) value;
+                        return Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{PreparedStatement.class},
+                                (statementProxy, statementMethod, statementArgs) -> {
+                                    if ("setInt".equals(statementMethod.getName()))
+                                        throw new IllegalArgumentException("simulated binding failure");
+                                    try {
+                                        return statementMethod.invoke(statement, statementArgs);
+                                    } catch (InvocationTargetException e) {
+                                        throw e.getCause();
+                                    }
+                                });
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        JdbcTableTarget target = new JdbcTableTarget(new ConnectionProvider() {
+            public Connection getConnection() { return bindingFailureConnection; }
+            public void close() { try { connection.close(); } catch (SQLException ignored) { } }
+        }, new QualifiedTableName(null, null, "ORDERS"), DatabaseType.MYSQL);
+        RecordSchema writeSchema = new RecordSchema(Collections.singletonList(
+                new FieldSchema("id", LogicalType.INT32, false, null, null, null)));
+        target.prepare(SchemaDescriptor.of(writeSchema), TargetMode.APPEND);
+
+        try {
+            target.write(new RecordBatch(writeSchema, Arrays.asList(
+                    new DataRecord(writeSchema, Collections.<Object>singletonList(1)),
+                    new DataRecord(writeSchema, Collections.<Object>singletonList(2)))));
+            fail("expected binding failure");
+        } catch (SchemaLoomException expected) {
+            assertTrue(expected.getMessage().contains("write target batch"));
+        }
+
+        assertTrue(connection.getAutoCommit());
+        ResultSet rows = connection.createStatement().executeQuery("SELECT COUNT(*) FROM orders");
+        assertTrue(rows.next());
+        assertEquals(0, rows.getInt(1));
+        rows.close();
+        target.close();
     }
 
     private int count(Connection c, String table) throws SQLException {

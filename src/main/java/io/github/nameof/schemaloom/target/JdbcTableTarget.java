@@ -4,6 +4,7 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.JdbcValueCodec;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
+import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
 import io.github.nameof.schemaloom.metadata.*;
 
 import java.sql.*;
@@ -25,6 +26,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private final QualifiedTableName table;
     private final DatabaseDialect dialect;
     private final MetadataErrorPolicy metadataErrorPolicy;
+    private final JdbcExecutionAdapter execution;
     private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
     private RecordSchema schema;
     private TableInfo tableInfo;
@@ -44,6 +46,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         this.table = table;
         this.dialect = new DialectRegistry().get(type);
         this.metadataErrorPolicy = policy == null ? MetadataErrorPolicy.IGNORE : policy;
+        this.execution = new JdbcExecutionAdapter(p);
     }
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table) {
@@ -66,7 +69,6 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         temporaryCreated = false;
         tableInfo = descriptor.getTableInfo();
         validateCapabilities(schema);
-        Connection c = provider.getConnection();
         try {
             DatabaseMetadataService metadata = new DatabaseMetadataService();
             List<TableInfo> tables = metadata.listTables(provider, new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
@@ -78,29 +80,29 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             writeTable = replaceMode ? temporaryTable() : table;
             String q = dialect.quote(writeTable);
             if (replaceMode) {
-                dropTemporaryIfPresent(c);
+                dropTemporaryIfPresent();
                 temporaryCreated = true;
                 exists = false;
             }
             // Create or validate table
             if (!exists) {
-                c.createStatement().executeUpdate(tableInfo == null
+                execution.execute("create target table", tableInfo == null
                         ? dialect.createTableSql(q, schema) : dialect.createTableSql(q, tableInfo));
                 if (tableInfo != null) {
-                    executeMetadataSql(c, dialect.commentSql(q, tableInfo), "注释");
-                    executeMetadataSql(c, dialect.indexSql(q, tableInfo.getIndexes()), "索引");
+                    executeMetadataSql(dialect.commentSql(q, tableInfo), "注释");
+                    executeMetadataSql(dialect.indexSql(q, tableInfo.getIndexes()), "索引");
                 }
             } else {
                 validateAppend(existingTable, schema);
-                if (tableInfo != null) migrateIndexes(c, q, tableInfo, existingTable);
+                if (tableInfo != null) migrateIndexes(q, tableInfo, existingTable);
             }
             prepared = true;
             List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
             preparationErrors.clear();
             return errors;
-        } catch (SQLException e) {
+        } catch (RuntimeException e) {
             targetWriteFailed = true;
-            throw new SchemaLoomException("cannot prepare JDBC target", e);
+            throw e;
         }
     }
 
@@ -108,14 +110,14 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return new QualifiedTableName(table.getCatalog(), table.getSchema(), table.getTable() + "_tmp");
     }
 
-    private void dropTemporaryIfPresent(Connection c) throws SQLException {
+    private void dropTemporaryIfPresent() {
         List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
                 new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable() + "_tmp"));
-        if (!tables.isEmpty()) c.createStatement().executeUpdate(dialect.dropTableSql(dialect.quote(writeTable)));
+        if (!tables.isEmpty()) execution.execute("drop temporary target table", dialect.dropTableSql(dialect.quote(writeTable)));
     }
 
     /** 按名称和完整定义比较索引；等价索引直接跳过，冲突按结构策略处理。 */
-    private void migrateIndexes(Connection c, String q, TableInfo source, TableInfo target) throws SQLException {
+    private void migrateIndexes(String q, TableInfo source, TableInfo target) {
         for (IndexInfo expected : source.getIndexes()) {
             if (expected.getName() == null || expected.getName().trim().isEmpty() || expected.getColumns().isEmpty()) continue;
             IndexInfo equivalent = null;
@@ -129,7 +131,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 handleMetadataError("索引冲突: " + expected.getName(), new SchemaLoomException("目标索引定义不一致"));
                 continue;
             }
-            executeMetadataSql(c, indexSql(expected, q), "索引");
+            executeMetadataSql(indexSql(expected, q), "索引");
         }
     }
 
@@ -144,11 +146,11 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return true;
     }
 
-    private void executeMetadataSql(Connection c, List<String> sql, String stage) throws SQLException {
+    private void executeMetadataSql(List<String> sql, String stage) {
         for (String statement : sql) {
             try {
-                c.createStatement().executeUpdate(statement);
-            } catch (SQLException e) {
+                execution.execute(stage + "迁移", statement);
+            } catch (SchemaLoomException e) {
                 handleMetadataError(stage + "迁移失败", e);
             }
         }
@@ -173,37 +175,20 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     public BatchWriteResult write(RecordBatch b) {
         if (!prepared)
             throw new SchemaLoomException("target is not prepared");
-        Connection c = provider.getConnection();
-        boolean old;
         try {
-            String sql = dialect.insertSql(dialect.quote(writeTable), schema);
-            old = c.getAutoCommit();
-            c.setAutoCommit(false);
-            PreparedStatement ps = c.prepareStatement(sql);
-            try {
-                for (DataRecord r : b.getRecords()) {
-                    for (int i = 0; i < schema.getFields().size(); i++)
-                        setValue(ps, i + 1, schema.getFields().get(i), r.get(i));
-                    ps.addBatch();
-                }
-                ps.executeBatch();
-                c.commit();
-                incrementWrittenRows(b.size());
-                return new BatchWriteResult(b.size(), 0);
-            } catch (SQLException e) {
-                targetWriteFailed = true;
-                try {
-                    c.rollback();
-                } catch (SQLException ignored) {
-                }
-                throw new SchemaLoomException("JDBC batch failed: " + e.getMessage(), e);
-            } finally {
-                ps.close();
-                c.setAutoCommit(old);
-            }
-        } catch (SQLException e) {
-            targetWriteFailed = true;
-            throw new SchemaLoomException("cannot write JDBC target: " + e.getMessage(), e);
+            final RecordBatch batch = b;
+            execution.batchUpdate("write target batch", dialect.insertSql(dialect.quote(writeTable), schema),
+                    new JdbcExecutionAdapter.BatchSetter() {
+                        public void setValues(PreparedStatement statement, int row) throws SQLException {
+                            DataRecord record = batch.getRecords().get(row);
+                            for (int column = 0; column < schema.getFields().size(); column++)
+                                setValue(statement, column + 1, schema.getFields().get(column), record.get(column));
+                        }
+
+                        public int getBatchSize() { return batch.size(); }
+                    });
+            incrementWrittenRows(b.size());
+            return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
             targetWriteFailed = true;
             throw e;
@@ -226,21 +211,20 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         try {
             // Replace mode: drop temporary table and rename target table to final name.
             if (replaceMode && temporaryCreated) {
-                Connection c = provider.getConnection();
                 try {
                     if (targetWriteFailed || !prepared) {
-                        dropTemporaryIfPresent(c);
+                        dropTemporaryIfPresent();
                     } else {
                         List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
                                 new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
                         if (!tables.isEmpty())
-                            c.createStatement().executeUpdate(dialect.dropTableSql(dialect.quote(table)));
-                        c.createStatement().executeUpdate(dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
+                            execution.execute("drop replaced target table", dialect.dropTableSql(dialect.quote(table)));
+                        execution.execute("rename replacement target table", dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
                     }
-                } catch (SQLException e) {
+                } catch (RuntimeException e) {
                     targetWriteFailed = true;
-                    try { dropTemporaryIfPresent(c); } catch (SQLException ignored) { }
-                    throw new SchemaLoomException("cannot finalize JDBC target", e);
+                    try { dropTemporaryIfPresent(); } catch (RuntimeException ignored) { }
+                    throw e;
                 }
             }
         } finally {

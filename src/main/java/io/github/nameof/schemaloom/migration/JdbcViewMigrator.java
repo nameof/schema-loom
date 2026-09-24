@@ -3,9 +3,11 @@ package io.github.nameof.schemaloom.migration;
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
+import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
 import io.github.nameof.schemaloom.metadata.*;
 
-import java.sql.*;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 
 /**
  * Copies a view definition after its referenced target tables have been migrated.
@@ -61,12 +63,9 @@ final class JdbcViewMigrator {
                 throw new SchemaLoomException("target object already exists: " + targetView);
 
             DatabaseDialect dialect = new DialectRegistry().get(source.getDatabaseType());
-            String definition = readDefinition(sourceProvider.getConnection(), dialect.viewDefinitionQuery(source, sourceName));
-            try (Statement statement = targetProvider.getConnection().createStatement()) {
-                statement.executeUpdate(dialect.createViewSql(dialect.quote(targetName), definition));
-            }
-        } catch (SQLException e) {
-            throw new SchemaLoomException("cannot migrate JDBC view", e);
+            String definition = readDefinition(new JdbcExecutionAdapter(sourceProvider), dialect.viewDefinitionQuery(source, sourceName));
+            new JdbcExecutionAdapter(targetProvider).execute("create target view",
+                    dialect.createViewSql(dialect.quote(targetName), definition));
         } finally {
             if (targetProvider != null) targetProvider.close();
             if (sourceProvider != null) sourceProvider.close();
@@ -74,15 +73,15 @@ final class JdbcViewMigrator {
         }
     }
 
-    private String readDefinition(Connection connection, ViewDefinitionQuery query) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(query.getSql())) {
-            for (int i = 0; i < query.getParameters().size(); i++) statement.setObject(i + 1, query.getParameters().get(i));
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next() || result.getString(1) == null || result.getString(1).trim().isEmpty())
-                    throw new SchemaLoomException("view definition is unavailable; verify metadata permissions");
-                return result.getString(1).trim();
-            }
-        }
+    private String readDefinition(JdbcExecutionAdapter execution, ViewDefinitionQuery query) {
+        return execution.query("read view definition", query.getSql(), query.getParameters(), 0, null,
+                new JdbcExecutionAdapter.ResultSetHandler<String>() {
+                    public String extractData(ResultSet result) throws SQLException {
+                        if (!result.next() || result.getString(1) == null || result.getString(1).trim().isEmpty())
+                            throw new SchemaLoomException("view definition is unavailable; verify metadata permissions");
+                        return result.getString(1).trim();
+                    }
+                });
     }
 
     private boolean sameNativeNamespace() {

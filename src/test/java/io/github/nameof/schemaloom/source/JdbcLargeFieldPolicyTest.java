@@ -22,11 +22,11 @@ import static org.junit.Assert.*;
 
 public class JdbcLargeFieldPolicyTest {
     @Test
-    public void defaultsSkipOnlyBlob() {
+    public void defaultsSkipBinaryTypes() {
         LargeFieldPolicy policy = LargeFieldPolicy.defaults();
         assertEquals(LargeFieldPolicy.Action.SKIP, policy.action("blob", Types.BLOB, "BLOB"));
         assertEquals(LargeFieldPolicy.Action.COPY, policy.action("clob", Types.CLOB, "CLOB"));
-        assertEquals(LargeFieldPolicy.Action.COPY, policy.action("binary", Types.VARBINARY, "VARBINARY"));
+        assertEquals(LargeFieldPolicy.Action.SKIP, policy.action("binary", Types.VARBINARY, "VARBINARY"));
     }
 
     @Test

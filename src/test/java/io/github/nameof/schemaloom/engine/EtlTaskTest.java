@@ -1,10 +1,9 @@
 package io.github.nameof.schemaloom.engine;
 
-import cn.hutool.core.bean.BeanUtil;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.*;
-import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.DatabaseMetadataService;
+import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.source.JdbcTableSource;
 import io.github.nameof.schemaloom.source.LargeFieldPolicy;
@@ -12,12 +11,9 @@ import io.github.nameof.schemaloom.source.MemorySource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import io.github.nameof.schemaloom.target.MemoryTarget;
 import io.github.nameof.schemaloom.transform.FieldMapping;
-import org.junit.Assert;
-import org.junit.Assume;
 import org.junit.Test;
 
 import java.util.*;
-import java.sql.*;
 
 import static org.junit.Assert.*;
 
@@ -187,7 +183,7 @@ public class EtlTaskTest {
                 DatabaseType.MYSQL, "localhost", 3306, "hxl2", "root", "root");
         EtlResult result = EtlTask.builder()
                 .source(new JdbcTableSource(sourceConfig, "jsh_account", 10, LargeFieldPolicy.skipAllLargeFields()))
-                .target(new JdbcTableTarget(targetConfig, "sss22222b2"))
+                .target(new JdbcTableTarget(targetConfig, "cvdssf"))
                 .targetMode(TargetMode.REPLACE)
                 .build().run();
         assertSame(result.getStatus(), EtlStatus.SUCCESS);
