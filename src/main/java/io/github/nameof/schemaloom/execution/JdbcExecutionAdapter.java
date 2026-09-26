@@ -91,11 +91,21 @@ public final class JdbcExecutionAdapter {
         return connection -> {
             PreparedStatement statement = connection.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY,
                     ResultSet.CONCUR_READ_ONLY);
-            if (fetchSize > 0) statement.setFetchSize(fetchSize);
-            if (maxRows != null) statement.setMaxRows(maxRows);
-            List<Object> values = params == null ? Collections.<Object>emptyList() : params;
-            for (int i = 0; i < values.size(); i++) statement.setObject(i + 1, values.get(i));
-            return statement;
+            try {
+                if (fetchSize > 0) statement.setFetchSize(fetchSize);
+                if (maxRows != null) statement.setMaxRows(maxRows);
+                List<Object> values = params == null ? Collections.emptyList() : params;
+                for (int i = 0; i < values.size(); i++)
+                    statement.setObject(i + 1, values.get(i));
+                return statement;
+            } catch (SQLException | RuntimeException e) {
+                try {
+                    statement.close();
+                } catch (SQLException closeError) {
+                    e.addSuppressed(closeError);
+                }
+                throw e;
+            }
         };
     }
 
