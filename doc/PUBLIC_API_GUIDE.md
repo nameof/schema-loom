@@ -41,7 +41,7 @@ JdbcDriverLoader loader = new JdbcDriverLoader();
 ConnectionProvider provider = loader.connect(config);
 ```
 
-不要在源码、提交记录或文档中写入真实密码。`ConnectionProvider` 持有一个 JDBC 连接，不是连接池；使用完毕后关闭 `provider`，最后关闭 `loader`。
+不要在源码、提交记录或文档中写入真实密码。`ConnectionProvider` 持有一个 JDBC 连接，不是连接池；使用完毕后关闭 `provider`，最后关闭 `loader`。内部执行适配层只借用该连接，不拥有连接生命周期。连接关闭失败会抛出 `SchemaLoomException`，在连接仍未关闭时保留 Provider 引用以便再次关闭；存在活动连接时禁止提前关闭 Loader。
 
 ### 1.3 用例：测试数据库连接
 

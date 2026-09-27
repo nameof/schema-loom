@@ -1,9 +1,9 @@
 /target/
 /.idea/
 *.iml
-# Keep the production drivers directory versioned.
+# 驱动描述文件需要版本化；数据库厂商 JAR 由部署环境提供。
 *.log
 .env
 .env.*
 
-drivers/
+/drivers/*.jar

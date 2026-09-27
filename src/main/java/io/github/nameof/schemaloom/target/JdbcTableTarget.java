@@ -54,11 +54,17 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
-        this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType());
+        this(openValidated(info, table, loader), info.table(table), info.getDatabaseType());
     }
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader, MetadataErrorPolicy policy) {
-        this(JdbcConnectionFactory.open(info, loader == null ? new JdbcDriverLoader() : loader), info.table(table), info.getDatabaseType(), policy);
+        this(openValidated(info, table, loader), info.table(table), info.getDatabaseType(), policy);
+    }
+
+    private static ConnectionProvider openValidated(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
+        if (info == null) throw new IllegalArgumentException("database connection info is required");
+        info.table(table);
+        return loader == null ? JdbcConnectionFactory.open(info) : JdbcConnectionFactory.open(info, loader);
     }
 
     public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {

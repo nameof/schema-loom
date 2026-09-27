@@ -37,20 +37,20 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     }
 
     public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize) {
-        this(JdbcConnectionFactory.open(info), sql, params, fetchSize, LargeFieldPolicy.defaults());
+        this(openValidated(info, sql, fetchSize), sql, params, fetchSize, LargeFieldPolicy.defaults());
     }
 
     public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize, JdbcDriverLoader loader) {
-        this(JdbcConnectionFactory.open(info, loader), sql, params, fetchSize, LargeFieldPolicy.defaults());
+        this(openValidated(info, sql, fetchSize, loader), sql, params, fetchSize, LargeFieldPolicy.defaults());
     }
 
     public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize, LargeFieldPolicy policy) {
-        this(JdbcConnectionFactory.open(info), sql, params, fetchSize, policy);
+        this(openValidated(info, sql, fetchSize), sql, params, fetchSize, policy);
     }
 
     public JdbcQuerySource(DatabaseConnectionInfo info, String sql, List<Object> params, int fetchSize,
                            JdbcDriverLoader loader, LargeFieldPolicy policy) {
-        this(JdbcConnectionFactory.open(info, loader), sql, params, fetchSize, policy);
+        this(openValidated(info, sql, fetchSize, loader), sql, params, fetchSize, policy);
     }
 
     public JdbcQuerySource(ConnectionProvider p, String sql, List<Object> params, int fetchSize) {
@@ -58,16 +58,31 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     }
 
     public JdbcQuerySource(ConnectionProvider p, String sql, List<Object> params, int fetchSize, LargeFieldPolicy policy) {
-        if (sql == null || !sql.trim().toLowerCase(Locale.ENGLISH).startsWith("select"))
-            throw new IllegalArgumentException("only SELECT is allowed");
+        validateQuery(sql, fetchSize);
         if (p == null) throw new IllegalArgumentException("connection provider is required");
-        if (fetchSize <= 0) throw new IllegalArgumentException("fetchSize must be positive");
         provider = p;
         this.sql = sql;
         this.params = params == null ? Collections.<Object>emptyList() : new ArrayList<Object>(params);
         this.fetchSize = fetchSize;
         this.largeFieldPolicy = policy == null ? LargeFieldPolicy.defaults() : policy;
         this.execution = new JdbcExecutionAdapter(p);
+    }
+
+    private static ConnectionProvider openValidated(DatabaseConnectionInfo info, String sql, int fetchSize) {
+        validateQuery(sql, fetchSize);
+        return JdbcConnectionFactory.open(info);
+    }
+
+    private static ConnectionProvider openValidated(DatabaseConnectionInfo info, String sql, int fetchSize,
+                                                      JdbcDriverLoader loader) {
+        validateQuery(sql, fetchSize);
+        return JdbcConnectionFactory.open(info, loader);
+    }
+
+    private static void validateQuery(String sql, int fetchSize) {
+        if (sql == null || !sql.trim().toLowerCase(Locale.ENGLISH).startsWith("select"))
+            throw new IllegalArgumentException("only SELECT is allowed");
+        if (fetchSize <= 0) throw new IllegalArgumentException("fetchSize must be positive");
     }
 
     private RecordSchema recordSchema() {

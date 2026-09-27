@@ -28,6 +28,7 @@ public final class JdbcExecutionAdapter {
     public JdbcExecutionAdapter(ConnectionProvider provider) {
         if (provider == null) throw new IllegalArgumentException("connection provider is required");
         Connection connection = provider.getConnection();
+        // suppressClose=true：Spring 只管理语句、结果集和事务，不关闭Connection
         SingleConnectionDataSource dataSource = new SingleConnectionDataSource(connection, true);
         jdbc = new JdbcTemplate(dataSource);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(dataSource));

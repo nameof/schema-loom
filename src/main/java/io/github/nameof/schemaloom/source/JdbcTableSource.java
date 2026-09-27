@@ -82,6 +82,7 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     private JdbcTableSource(DatabaseConnectionInfo info, String tableName, int fetchSize, LargeFieldPolicy policy,
                             Supplier<ConnectionProvider> providerSupplier) {
         if (info == null) throw new IllegalArgumentException("database connection info is required");
+        if (fetchSize <= 0) throw new IllegalArgumentException("fetchSize must be positive");
         this.info = info;
         this.table = info.table(tableName);
         this.fetchSize = fetchSize;
