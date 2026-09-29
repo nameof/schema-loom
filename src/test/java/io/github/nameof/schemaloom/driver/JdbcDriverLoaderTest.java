@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.Arrays;
+import java.util.Properties;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
@@ -62,6 +63,33 @@ public class JdbcDriverLoaderTest {
         } finally {
             loader.close();
         }
+    }
+
+    @Test public void closeFailureKeepsProviderForRetryBeforeReleasingDriver() throws Exception {
+        Path root = Files.createTempDirectory("schemaloom-driver-close-retry");
+        writeDriver(root, "fixture", "8.0.36", 10, "[8.0,9.0)");
+        JdbcDriverLoader loader = new JdbcDriverLoader(root);
+        Properties properties = new Properties();
+        properties.setProperty("fixture.closeFailsOnce", "true");
+        ConnectionProvider provider = loader.connect("jdbc:fixture://host:3306/db", "fixture", properties);
+        try {
+            provider.close();
+            fail("首次关闭应报告失败");
+        } catch (io.github.nameof.schemaloom.api.SchemaLoomException expected) {
+            assertTrue(expected.getMessage().contains("cannot close JDBC connection"));
+        }
+        assertEquals(1, cacheSize(loader));
+        assertNotNull(provider.getConnection());
+        try {
+            loader.close();
+            fail("存在活动连接时不应关闭 Loader");
+        } catch (io.github.nameof.schemaloom.api.SchemaLoomException expected) {
+            assertTrue(expected.getMessage().contains("active connections"));
+        }
+
+        provider.close();
+        assertEquals(0, cacheSize(loader));
+        loader.close();
     }
 
     private static void writeDriver(Path root, String id, String version, int priority, String range) throws Exception {

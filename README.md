@@ -369,7 +369,7 @@ ConnectionProvider provider =
 
 `JdbcDriverLoader` 无参构造优先读取应用工作目录下的 `drivers`，即 `${user.dir}/drivers`；未找到时才回退到 classpath 下的 `drivers` 资源目录，对应源码目录 `src/main/resources/drivers`。生产发布时将 `drivers` 与 `application.jar` 放在同一目录。每个 `.properties` 文件描述一个驱动，`classpath` 只能引用该目录内的 JAR：
 
-仓库内的本地驱动描述示例包括 `mysql8.properties`、`oracle23.properties` 和 `sqlserver2022.properties`；对应 JAR 必须存在于同一 `drivers` 目录，连接所需的账号、密码和数据库服务名由运行环境提供。
+仓库跟踪 `mysql8.properties`、`oracle23.properties` 和 `sqlserver2022.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
 
 目录结构：
 
@@ -516,17 +516,6 @@ $env:SCHEMALOOM_IT_MYSQL_PASSWORD = "<password>"
 $env:SCHEMALOOM_IT_MYSQL_DRIVER_ID = "mysql8"
 mvn -Dtest=JdbcEtlIntegrationTest test
 ```
-
-也可以使用本地 Podman 启动三种数据库容器。Oracle Free 和 SQL Server 镜像需要先完成本地镜像拉取；脚本不会把凭据写入仓库：
-
-```powershell
-.\scripts\start-jdbc-integration-containers.ps1
-# 配置对应驱动和 SCHEMALOOM_IT_* 连接变量后执行
-mvn -Pintegration test
-.\scripts\stop-jdbc-integration-containers.ps1
-```
-
-默认映射端口为 MySQL `13306`、Oracle `11521`、SQL Server `11433`，可通过脚本参数调整。SQL Server 容器通常需要 Podman 虚拟机至少 2GB 内存。容器镜像不可用或驱动未配置时，对应集成测试必须跳过并报告原因，不得把跳过当作通过。
 
 ## 性能测试
 

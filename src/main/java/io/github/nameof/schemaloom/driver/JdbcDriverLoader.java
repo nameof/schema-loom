@@ -137,48 +137,61 @@ public final class JdbcDriverLoader implements AutoCloseable {
         // 从描述文件默认值复制，再覆盖调用方参数，避免污染不可变的描述对象。
         Properties p = d.getDefaultProperties();
         if (supplied != null) p.putAll(supplied);
-        // Driver.connect 创建新的数据库会话，不会复用缓存中的 Connection。
-        Connection c = e.driver.connect(url, p);
-        if (c == null) {
-            throw new SQLException("driver rejected URL");
-        }
-        if (!VersionRange.accept(d.getVersionRange(), c.getMetaData().getDatabaseProductVersion())) {
-            // 版本不匹配的连接不能交给调用方；若没有其他引用，同时释放驱动类加载器。
-            try {
-                c.close();
-            } catch (SQLException ignored) {
+        Connection connection = null;
+        try {
+            // Driver.connect 创建新的数据库会话，不会复用缓存中的 Connection。
+            connection = e.driver.connect(url, p);
+            if (connection == null) throw new SQLException("driver rejected URL");
+            if (!VersionRange.accept(d.getVersionRange(), connection.getMetaData().getDatabaseProductVersion()))
+                throw new SQLException("server version is outside driver range");
+            e.refs++;
+            return new Provider(connection, e, this);
+        } catch (Exception failure) {
+            if (connection != null) try {
+                connection.close();
+            } catch (Exception closeError) {
+                failure.addSuppressed(closeError);
             }
             if (e.refs == 0) {
                 cache.remove(d.getId());
                 try {
                     e.loader.close();
-                } catch (Exception ignored) {
+                } catch (Exception closeError) {
+                    failure.addSuppressed(closeError);
                 }
             }
-            throw new SQLException("server version is outside driver range");
+            throw failure;
         }
-        e.refs++;
-        return new Provider(c, e, this);
     }
 
     /** 关闭一个连接后减少引用；最后一个连接释放时卸载对应驱动类加载器。 */
     public synchronized void release(Entry e) {
-        if (--e.refs == 0) try {
-            e.loader.close();
+        if (e.refs <= 0) throw new SchemaLoomException("driver reference count is invalid");
+        if (--e.refs == 0) {
             cache.values().remove(e);
-        } catch (Exception ex) {
-            throw new SchemaLoomException("cannot close driver loader", ex);
+            try {
+                e.loader.close();
+            } catch (Exception ex) {
+                throw new SchemaLoomException("cannot close driver loader", ex);
+            }
         }
     }
 
     /** 关闭所有已缓存驱动，供 loader 本身释放资源。 */
     public synchronized void close() {
         for (Entry e : cache.values())
+            if (e.refs > 0)
+                throw new SchemaLoomException("cannot close driver loader with active connections");
+        SchemaLoomException failure = null;
+        for (Entry e : cache.values())
             try {
                 e.loader.close();
-            } catch (Exception ignored) {
+            } catch (Exception ex) {
+                if (failure == null) failure = new SchemaLoomException("cannot close driver loader", ex);
+                else failure.addSuppressed(ex);
             }
         cache.clear();
+        if (failure != null) throw failure;
     }
 
     private static final class Entry {
@@ -241,14 +254,32 @@ public final class JdbcDriverLoader implements AutoCloseable {
         }
 
         /** 连接关闭必须幂等，同时归还 loader 中的驱动引用。 */
-        public void close() {
-            if (c != null) try {
+        public synchronized void close() {
+            if (c == null) return;
+            Exception closeFailure = null;
+            boolean closed = false;
+            try {
                 c.close();
-            } catch (Exception ignored) {
-            } finally {
-                c = null;
-                owner.release(e);
+                closed = true;
+            } catch (Exception e) {
+                closeFailure = e;
+                try {
+                    closed = c.isClosed();
+                } catch (Exception stateError) {
+                    e.addSuppressed(stateError);
+                }
             }
+            if (closed) {
+                c = null;
+                try {
+                    owner.release(e);
+                } catch (RuntimeException releaseError) {
+                    if (closeFailure == null) throw releaseError;
+                    closeFailure.addSuppressed(releaseError);
+                }
+            }
+            if (closeFailure != null)
+                throw new SchemaLoomException("cannot close JDBC connection", closeFailure);
         }
     }
 }

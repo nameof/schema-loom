@@ -26,9 +26,20 @@ public final class FixtureDriver implements Driver {
         final DatabaseMetaData dbmd = (DatabaseMetaData) Proxy.newProxyInstance(
                 FixtureDriver.class.getClassLoader(), new Class<?>[]{DatabaseMetaData.class}, metadata);
         InvocationHandler connection = new InvocationHandler() {
-            public Object invoke(Object proxy, Method method, Object[] args) {
+            private boolean closed;
+            private boolean closeFailed;
+
+            public Object invoke(Object proxy, Method method, Object[] args) throws SQLException {
                 if ("getMetaData".equals(method.getName())) return dbmd;
-                if ("isClosed".equals(method.getName())) return false;
+                if ("close".equals(method.getName())) {
+                    if (Boolean.parseBoolean(info.getProperty("fixture.closeFailsOnce")) && !closeFailed) {
+                        closeFailed = true;
+                        throw new SQLException("simulated close failure");
+                    }
+                    closed = true;
+                    return null;
+                }
+                if ("isClosed".equals(method.getName())) return closed;
                 return defaultValue(method.getReturnType());
             }
         };
