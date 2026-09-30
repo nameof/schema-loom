@@ -3,6 +3,9 @@ package io.github.nameof.schemaloom.metadata;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
 import io.github.nameof.schemaloom.source.JdbcTypes;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import schemacrawler.schema.*;
 import schemacrawler.schemacrawler.LimitOptionsBuilder;
 import schemacrawler.schemacrawler.LoadOptionsBuilder;
@@ -18,6 +21,7 @@ import java.util.regex.Pattern;
 
 /** SchemaCrawler 到 SchemaLoom 元数据 DTO 的稳定映射门面。 */
 public final class DatabaseMetadataService {
+    private static final Logger log = LoggerFactory.getLogger(DatabaseMetadataService.class);
     public DatabaseInfo getDatabaseInfo(ConnectionProvider provider) {
         Catalog catalog = catalog(provider, null, false);
         return new DatabaseInfo(catalog.getDatabaseInfo().getDatabaseProductName(), catalog.getDatabaseInfo().getDatabaseProductVersion(),
@@ -46,6 +50,7 @@ public final class DatabaseMetadataService {
             if (query == null || matches(query.getCatalog(), schema.getCatalogName()) && matches(query.getSchema(), schema.getName()))
                 out.add(new SchemaInfo(schema.getCatalogName(), schema.getName()));
         }
+        log.debug("数据库 Schema 读取完成 runId={} count={}", LoggingSupport.currentRunId(), out.size());
         return out;
     }
 
@@ -57,6 +62,7 @@ public final class DatabaseMetadataService {
             if (!matches(query.getCatalog(), schema.getCatalogName()) || !matches(query.getSchema(), schema.getName()) || !pattern.matcher(table.getName()).matches()) continue;
             out.add(map(table));
         }
+        log.debug("数据库表元数据读取完成 runId={} count={}", LoggingSupport.currentRunId(), out.size());
         return out;
     }
 

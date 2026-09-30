@@ -3,6 +3,9 @@ package io.github.nameof.schemaloom.driver;
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.setting.dialect.Props;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -11,6 +14,7 @@ import java.nio.file.*;
 import java.util.*;
 
 public final class DriverDescriptorLoader {
+    private static final Logger log = LoggerFactory.getLogger(DriverDescriptorLoader.class);
     private static final String DRIVER_DIR_PROPERTY = "schemaloom.driver-dir";
     private static final String DRIVER_DIR_ENV = "SCHEMALOOM_DRIVER_DIR";
 
@@ -82,6 +86,7 @@ public final class DriverDescriptorLoader {
             } finally {
                 files.close();
             }
+            log.debug("JDBC 驱动描述加载完成 runId={} count={}", LoggingSupport.currentRunId(), out.size());
             return out;
         } catch (IOException | IllegalArgumentException e) {
             throw new SchemaLoomException("cannot load driver descriptors", e);

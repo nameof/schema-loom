@@ -5,6 +5,9 @@ import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
 import io.github.nameof.schemaloom.metadata.*;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -14,6 +17,7 @@ import java.sql.SQLException;
  * Native view SQL is only safe to copy between identical database types.
  */
 final class JdbcViewMigrator {
+    private static final Logger log = LoggerFactory.getLogger(JdbcViewMigrator.class);
     private final DatabaseConnectionInfo source;
     private final DatabaseConnectionInfo target;
     private final JdbcDriverLoader loader;
@@ -64,8 +68,10 @@ final class JdbcViewMigrator {
 
             DatabaseDialect dialect = new DialectRegistry().get(source.getDatabaseType());
             String definition = readDefinition(new JdbcExecutionAdapter(sourceProvider), dialect.viewDefinitionQuery(source, sourceName));
+            log.debug("视图定义已读取 runId={} sourceView={}", LoggingSupport.currentRunId(), sourceView);
             new JdbcExecutionAdapter(targetProvider).execute("create target view",
                     dialect.createViewSql(dialect.quote(targetName), definition));
+            log.debug("目标视图已创建 runId={} targetView={}", LoggingSupport.currentRunId(), targetView);
         } finally {
             if (targetProvider != null) targetProvider.close();
             if (sourceProvider != null) sourceProvider.close();

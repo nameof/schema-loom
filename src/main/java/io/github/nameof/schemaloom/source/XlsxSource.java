@@ -2,7 +2,10 @@ package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.ExcelValueCodec;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
 import org.apache.poi.ss.usermodel.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.*;
@@ -22,6 +25,7 @@ import java.util.*;
  * <p>为统一支持两种格式，当前实现使用 POI WorkbookFactory，读取时会将工作簿加载到内存。</p>
  */
 public final class XlsxSource implements Source, ReadStatisticsProvider {
+    private static final Logger log = LoggerFactory.getLogger(XlsxSource.class);
     private static final int DEFAULT_BATCH_SIZE = 1000;
     private final Path path;
     private final String sheet;
@@ -78,11 +82,15 @@ public final class XlsxSource implements Source, ReadStatisticsProvider {
     }
 
     public SchemaDescriptor schema() {
-        return SchemaDescriptor.of(recordSchema());
+        RecordSchema result = recordSchema();
+        log.debug("XLSX Schema 已解析 runId={} file={} fields={}",
+                LoggingSupport.currentRunId(), path.getFileName(), result.getFields().size());
+        return SchemaDescriptor.of(result);
     }
 
     public void read(BatchConsumer consumer) {
         RecordSchema s = recordSchema();
+        log.info("XLSX 读取开始 runId={} file={} batchSize={}", LoggingSupport.currentRunId(), path.getFileName(), batchSize);
         long read = 0, skipped = 0;
         Map<String, Long> bad = new LinkedHashMap<String, Long>();
         try (InputStream in = Files.newInputStream(path); Workbook wb = WorkbookFactory.create(in)) {
@@ -133,7 +141,11 @@ public final class XlsxSource implements Source, ReadStatisticsProvider {
             }
             if (!batch.isEmpty()) consumer.accept(new RecordBatch(s, batch));
             statistics = new ReadStatistics(read, skipped, bad);
+            log.info("XLSX 读取完成 runId={} file={} rows={} skippedRows={} skippedFields={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), read, skipped, bad.size());
         } catch (IOException e) {
+            log.warn("XLSX 读取失败 runId={} file={} message={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), LoggingSupport.message(e));
             throw new SchemaLoomException("cannot read XLS/XLSX", e);
         }
     }

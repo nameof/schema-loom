@@ -49,8 +49,8 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 candidates.add(d);
         }
         sort(candidates);
-        log.debug("JDBC驱动候选已确定 databaseType={} candidateCount={} driverId={}",
-                config.getDatabaseType(), candidates.size(), driverId);
+        log.debug("JDBC驱动候选已确定 runId={} databaseType={} candidateCount={} driverId={}",
+                LoggingSupport.currentRunId(), config.getDatabaseType(), candidates.size(), driverId);
         if (driverId != null && candidates.isEmpty()) {
             throw new SchemaLoomException("driver not found: " + driverId);
         }
@@ -68,13 +68,14 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 if (config.getUsername() != null) p.setProperty("user", config.getUsername());
                 if (config.getPassword() != null) p.setProperty("password", config.getPassword());
                 ConnectionProvider provider = open(d, url, p);
-                log.info("JDBC连接已建立 databaseType={} driverId={}", config.getDatabaseType(), d.getId());
+                log.info("JDBC连接已建立 runId={} databaseType={} driverId={}",
+                        LoggingSupport.currentRunId(), config.getDatabaseType(), d.getId());
                 return provider;
             } catch (Throwable e) {
                 last = e;
                 lastDriverId = d.getId();
-                log.warn("JDBC驱动连接尝试失败 databaseType={} driverId={} message={}",
-                        config.getDatabaseType(), d.getId(), LoggingSupport.message(e));
+                log.warn("JDBC驱动连接尝试失败 runId={} databaseType={} driverId={} message={}",
+                        LoggingSupport.currentRunId(), config.getDatabaseType(), d.getId(), LoggingSupport.message(e));
                 // 未指定驱动时允许降级尝试下一个候选；指定驱动则保留原始失败原因。
                 if (driverId != null) break;
             }
@@ -201,7 +202,7 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 else failure.addSuppressed(ex);
             }
         cache.clear();
-        log.debug("JDBC驱动加载器已关闭");
+        log.debug("JDBC驱动加载器已关闭 runId={}", LoggingSupport.currentRunId());
         if (failure != null) throw failure;
     }
 

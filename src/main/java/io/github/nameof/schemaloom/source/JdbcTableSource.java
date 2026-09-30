@@ -4,7 +4,10 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
 import io.github.nameof.schemaloom.metadata.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.util.*;
@@ -20,6 +23,7 @@ import java.util.function.Supplier;
  * 目标不存在则按 VIEW 输出 Schema 创建普通表，目标已存在则按目标模式校验并写入。</p>
  */
 public final class JdbcTableSource implements Source, ReadStatisticsProvider {
+    private static final Logger log = LoggerFactory.getLogger(JdbcTableSource.class);
     public static final int MAX_PREVIEW_ROWS = 300;
     private final DatabaseConnectionInfo info;
     private final QualifiedTableName table;
@@ -145,17 +149,23 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     }
 
     public SchemaDescriptor schema() {
-        return SchemaDescriptor.of(tableInfo());
+        TableInfo result = tableInfo();
+        log.debug("JDBC 表 Schema 已解析 runId={} table={} fields={}",
+                LoggingSupport.currentRunId(), table.getTable(), result.getColumns().size());
+        return SchemaDescriptor.of(result);
     }
 
     public long count() {
         ensureProvider();
-        return execution.queryForLong("count table", "SELECT COUNT(*) FROM " + dialect.quote(table));
+        long rows = execution.queryForLong("count table", "SELECT COUNT(*) FROM " + dialect.quote(table));
+        log.debug("JDBC 表计数完成 runId={} table={} rows={}", LoggingSupport.currentRunId(), table.getTable(), rows);
+        return rows;
     }
 
     /** 读取委托批次，并将记录绑定到表 Schema 后再交给调用方。 */
     public void read(BatchConsumer c) {
         final RecordSchema schema = ensureSchema();
+        log.debug("JDBC 表读取开始 runId={} table={} fetchSize={}", LoggingSupport.currentRunId(), table.getTable(), fetchSize);
         delegate.read(batch -> {
             List<DataRecord> records = new ArrayList<DataRecord>(batch.size());
             // 委托使用查询 Schema；这里换回表元数据生成的正式 Schema，保持引用一致性。
@@ -165,6 +175,7 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
             }
             c.accept(new RecordBatch(schema, records));
         });
+        log.debug("JDBC 表读取完成 runId={} table={} rows={}", LoggingSupport.currentRunId(), table.getTable(), getReadStatistics().getReadRows());
     }
 
     /** 读取指定数量的表预览数据，最多 300 行。 */
@@ -181,6 +192,7 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
     public synchronized void close() {
         closed = true;
         if (provider != null) provider.close();
+        log.debug("JDBC 表源已关闭 runId={} table={}", LoggingSupport.currentRunId(), table.getTable());
     }
 
     public ReadStatistics getReadStatistics() {

@@ -4,12 +4,16 @@ import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.JdbcValueCodec;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.time.*;
 import java.util.*;
 
 public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
+    private static final Logger log = LoggerFactory.getLogger(JdbcQuerySource.class);
     private final ConnectionProvider provider;
     private final String sql;
     private final List<Object> params;
@@ -95,7 +99,11 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
         return schema;
     }
 
-    public SchemaDescriptor schema() { return SchemaDescriptor.of(recordSchema()); }
+    public SchemaDescriptor schema() {
+        RecordSchema result = recordSchema();
+        log.debug("JDBC 查询 Schema 已解析 runId={} fields={}", LoggingSupport.currentRunId(), result.getFields().size());
+        return SchemaDescriptor.of(result);
+    }
 
     private RecordSchema readSchema(ResultSetMetaData m) throws SQLException {
         List<FieldSchema> fs = new ArrayList<FieldSchema>();
@@ -141,6 +149,7 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     public void read(BatchConsumer c) {
         RecordSchema sc = recordSchema();
         resetStatistics();
+        log.debug("JDBC 查询读取开始 runId={} fetchSize={} parameterCount={}", LoggingSupport.currentRunId(), fetchSize, params.size());
         execution.query("read query", sql, params, fetchSize, null, new JdbcExecutionAdapter.ResultSetHandler<Void>() {
             public Void extractData(ResultSet resultSet) throws SQLException {
                 ResultSetMetaData metadata = resultSet.getMetaData();
@@ -157,10 +166,13 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
                 return null;
             }
         });
+        ReadStatistics result = getReadStatistics();
+        log.debug("JDBC 查询读取完成 runId={} rows={} skippedFields={}", LoggingSupport.currentRunId(), result.getReadRows(), result.getSkippedFieldRows().size());
     }
 
     public void close() {
         provider.close();
+        log.debug("JDBC 查询源已关闭 runId={}", LoggingSupport.currentRunId());
     }
 
     public synchronized ReadStatistics getReadStatistics() {

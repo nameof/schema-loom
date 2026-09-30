@@ -40,17 +40,17 @@ public final class JdbcExecutionAdapter {
 
     public <T> T query(String stage, String sql, List<Object> params, int fetchSize, Integer maxRows,
                        ResultSetHandler<T> handler) {
-        log.debug("JDBC查询开始 stage={} parameterCount={} fetchSize={} maxRows={}", stage,
-                params == null ? 0 : params.size(), fetchSize, maxRows);
+        log.debug("JDBC查询开始 runId={} stage={} parameterCount={} fetchSize={} maxRows={}",
+                LoggingSupport.currentRunId(), stage, params == null ? 0 : params.size(), fetchSize, maxRows);
         try {
             T result = jdbc.query(statement(sql, params, fetchSize, maxRows), handler::extractData);
-            log.debug("JDBC查询完成 stage={}", stage);
+            log.debug("JDBC查询完成 runId={} stage={}", LoggingSupport.currentRunId(), stage);
             return result;
         } catch (DataAccessException e) {
-            log.warn("JDBC查询失败 stage={} message={}", stage, LoggingSupport.message(e));
+            log.warn("JDBC查询失败 runId={} stage={} message={}", LoggingSupport.currentRunId(), stage, LoggingSupport.message(e));
             throw failed(stage, e);
         } catch (RuntimeException e) {
-            log.warn("JDBC查询失败 stage={} message={}", stage, LoggingSupport.message(e));
+            log.warn("JDBC查询失败 runId={} stage={} message={}", LoggingSupport.currentRunId(), stage, LoggingSupport.message(e));
             throw convert(stage, e);
         }
     }
@@ -66,22 +66,22 @@ public final class JdbcExecutionAdapter {
     }
 
     public void execute(String stage, String sql) {
-        log.debug("JDBC执行开始 stage={}", stage);
+        log.debug("JDBC执行开始 runId={} stage={}", LoggingSupport.currentRunId(), stage);
         try {
             jdbc.execute(sql);
-            log.debug("JDBC执行完成 stage={}", stage);
+            log.debug("JDBC执行完成 runId={} stage={}", LoggingSupport.currentRunId(), stage);
         } catch (DataAccessException e) {
-            log.warn("JDBC执行失败 stage={} message={}", stage, LoggingSupport.message(e));
+            log.warn("JDBC执行失败 runId={} stage={} message={}", LoggingSupport.currentRunId(), stage, LoggingSupport.message(e));
             throw failed(stage, e);
         } catch (RuntimeException e) {
-            log.warn("JDBC执行失败 stage={} message={}", stage, LoggingSupport.message(e));
+            log.warn("JDBC执行失败 runId={} stage={} message={}", LoggingSupport.currentRunId(), stage, LoggingSupport.message(e));
             throw convert(stage, e);
         }
     }
 
     /** 每次调用对应一个短事务；绑定和回调的运行时异常同样会触发回滚。 */
     public int[] batchUpdate(final String stage, final String sql, final BatchSetter setter) {
-        log.debug("JDBC批量写入开始 stage={} batchSize={}", stage, setter.getBatchSize());
+        log.debug("JDBC批量写入开始 runId={} stage={} batchSize={}", LoggingSupport.currentRunId(), stage, setter.getBatchSize());
         try {
             int[] resultCounts = transaction.execute(status -> {
                 int[] counts = jdbc.batchUpdate(sql, new org.springframework.jdbc.core.BatchPreparedStatementSetter() {
@@ -94,14 +94,15 @@ public final class JdbcExecutionAdapter {
                 verifyBatchCounts(counts);
                 return counts;
             });
-            log.debug("JDBC批量写入完成 stage={} rows={}", stage, resultCounts == null ? 0 : resultCounts.length);
+            log.debug("JDBC批量写入完成 runId={} stage={} rows={}",
+                    LoggingSupport.currentRunId(), stage, resultCounts == null ? 0 : resultCounts.length);
             return resultCounts;
         } catch (DataAccessException e) {
-            log.warn("JDBC批量写入失败 stage={} message={}", stage, LoggingSupport.message(e));
+            log.warn("JDBC批量写入失败 runId={} stage={} message={}", LoggingSupport.currentRunId(), stage, LoggingSupport.message(e));
             throw failed(stage, e);
         } catch (RuntimeException e) {
             if (e instanceof SchemaLoomException) throw e;
-            log.warn("JDBC批量写入失败 stage={} message={}", stage, LoggingSupport.message(e));
+            log.warn("JDBC批量写入失败 runId={} stage={} message={}", LoggingSupport.currentRunId(), stage, LoggingSupport.message(e));
             throw failed(stage, e);
         }
     }

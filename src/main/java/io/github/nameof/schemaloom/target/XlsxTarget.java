@@ -3,12 +3,16 @@ package io.github.nameof.schemaloom.target;
 import cn.hutool.poi.excel.*;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.ExcelValueCodec;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
 
 public final class XlsxTarget implements Target {
+    private static final Logger log = LoggerFactory.getLogger(XlsxTarget.class);
     private final Path path;
     private BigExcelWriter writer;
     private RecordSchema schema;
@@ -38,6 +42,7 @@ public final class XlsxTarget implements Target {
         writer = ExcelUtil.getBigWriter(part.toFile(), "Sheet1");
         writer.writeHeadRow(names());
         rows = 1;
+        log.info("XLSX 目标准备完成 runId={} file={}", LoggingSupport.currentRunId(), path.getFileName());
         return Collections.emptyList();
     }
 
@@ -63,9 +68,13 @@ public final class XlsxTarget implements Target {
                     rows = 1;
                 }
             }
+            log.debug("XLSX 目标批次写入完成 runId={} file={} rows={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), b.size());
             return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
             failed = true;
+            log.warn("XLSX 写入失败 runId={} file={} partialPreserved={} message={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), part != null, LoggingSupport.message(e));
             throw new SchemaLoomException("cannot write XLSX", e);
         }
     }
@@ -79,6 +88,7 @@ public final class XlsxTarget implements Target {
             writer = null;
             if (!failed)
                 Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
+            log.info("XLSX 目标关闭完成 runId={} file={} failed={}", LoggingSupport.currentRunId(), path.getFileName(), failed);
         } catch (IOException e) {
             writer = null;
             throw new SchemaLoomException("cannot close XLSX", e);

@@ -3,6 +3,9 @@ package io.github.nameof.schemaloom.metadata;
 import cn.hutool.core.util.StrUtil;
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
@@ -13,6 +16,7 @@ import java.util.Map;
 
 /** 包内统计读取器：只负责方言查询和结果映射，不拥有连接生命周期。 */
 final class JdbcDatabaseStatisticsReader {
+    private static final Logger log = LoggerFactory.getLogger(JdbcDatabaseStatisticsReader.class);
     private final JdbcTemplate jdbc;
     private final String product;
     private final Connection connection;
@@ -71,6 +75,7 @@ final class JdbcDatabaseStatisticsReader {
         } catch (DataAccessException e) {
             if (!permissionFailure(e)) throw e;
             // DBA_SEGMENTS 可能需要额外权限；容量字段按约定返回 0，基础行统计仍然保留。
+            log.warn("Oracle 表容量统计降级 runId={} table={} reason=permission", LoggingSupport.currentRunId(), name.getTable());
         }
         return new TableStatistics(number(base, "row_count"), data, index, number(base, "avg_row_length"));
     }
@@ -87,6 +92,7 @@ final class JdbcDatabaseStatisticsReader {
         } catch (DataAccessException e) {
             if (!permissionFailure(e)) throw e;
             // DBA_SEGMENTS 无权限时只降级容量，totalTables/totalRows 仍来自 ALL_TABLES。
+            log.warn("Oracle Schema 容量统计降级 runId={} reason=permission", LoggingSupport.currentRunId());
         }
         return new SchemaStatistics(number(counts, "total_tables"), number(counts, "total_rows"), data);
     }
@@ -119,6 +125,7 @@ final class JdbcDatabaseStatisticsReader {
         } catch (DataAccessException e) {
             if (!permissionFailure(e)) throw e;
             // DMV 权限不足时返回 0；普通表数量仍可由 sys.tables 提供。
+            log.warn("SQL Server Schema 行数与容量统计降级 runId={} reason=permission", LoggingSupport.currentRunId());
         }
         return new SchemaStatistics(number(tables, "total_tables"), rows, data);
     }

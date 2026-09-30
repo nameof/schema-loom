@@ -42,7 +42,9 @@ public final class JdbcViewMigrationTask implements Callable<EtlResult> {
     public EtlResult run() {
         Instant started = Instant.now();
         String runId = LoggingSupport.runId();
+        String previousRunId = LoggingSupport.bindRunId(runId);
         List<EtlError> errors = new ArrayList<EtlError>();
+        try {
         log.info("视图迁移开始 runId={} sourceView={} targetView={}", runId, sourceView, targetView);
         try {
             if (loader == null)
@@ -57,6 +59,9 @@ public final class JdbcViewMigrationTask implements Callable<EtlResult> {
             log.error("视图迁移失败 runId={} message={}", runId, LoggingSupport.message(e), LoggingSupport.safe(e));
             EtlResult result = new EtlResult(EtlStatus.FAILED, 0, 0, 0, 0, 1, started, Instant.now(), errors);
             return result;
+        }
+        } finally {
+            LoggingSupport.restoreRunId(previousRunId);
         }
     }
 

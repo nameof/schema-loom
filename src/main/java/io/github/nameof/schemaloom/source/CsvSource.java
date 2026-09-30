@@ -2,6 +2,9 @@ package io.github.nameof.schemaloom.source;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.TextValueCodec;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.charset.*;
@@ -22,6 +25,7 @@ import java.util.*;
  * 缺失列和空值按 null 处理，不计入非法值统计。文件无法读取、标题为空或重复、CSV 引号未闭合等结构错误始终终止读取。
  */
 public final class CsvSource implements Source, ReadStatisticsProvider {
+    private static final Logger log = LoggerFactory.getLogger(CsvSource.class);
     private static final int DEFAULT_BATCH_SIZE = 1000;
     private final Path path;
     private final Charset charset;
@@ -68,7 +72,12 @@ public final class CsvSource implements Source, ReadStatisticsProvider {
         return inferred;
     }
 
-    public SchemaDescriptor schema() { return SchemaDescriptor.of(recordSchema()); }
+    public SchemaDescriptor schema() {
+        RecordSchema result = recordSchema();
+        log.debug("CSV Schema 已解析 runId={} file={} fields={}",
+                LoggingSupport.currentRunId(), path.getFileName(), result.getFields().size());
+        return SchemaDescriptor.of(result);
+    }
 
     private RecordSchema stringSchema() {
         try (BufferedReader r = Files.newBufferedReader(path, charset)) {
@@ -126,6 +135,8 @@ public final class CsvSource implements Source, ReadStatisticsProvider {
                 r.close();
             }
         } catch (IOException e) {
+            log.warn("CSV Schema 推断失败 runId={} file={} message={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), LoggingSupport.message(e));
             throw new SchemaLoomException("cannot read CSV", e);
         }
     }
@@ -133,6 +144,7 @@ public final class CsvSource implements Source, ReadStatisticsProvider {
     /** 重新打开文件并按批次流式读取，避免把整个 CSV 加载到内存。 */
     public void read(BatchConsumer consumer) {
         RecordSchema s = recordSchema();
+        log.info("CSV 读取开始 runId={} file={} batchSize={}", LoggingSupport.currentRunId(), path.getFileName(), batchSize);
         long readRows = 0, skippedRows = 0;
         Map<String, Long> skippedFields = new LinkedHashMap<String, Long>();
         try {
@@ -171,10 +183,14 @@ public final class CsvSource implements Source, ReadStatisticsProvider {
                 }
                 if (!batch.isEmpty()) consumer.accept(new RecordBatch(s, batch));
                 statistics = new ReadStatistics(readRows, skippedRows, skippedFields);
+                log.info("CSV 读取完成 runId={} file={} rows={} skippedRows={} skippedFields={}",
+                        LoggingSupport.currentRunId(), path.getFileName(), readRows, skippedRows, skippedFields.size());
             } finally {
                 r.close();
             }
         } catch (IOException e) {
+            log.warn("CSV 读取失败 runId={} file={} message={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), LoggingSupport.message(e));
             throw new SchemaLoomException("cannot read CSV", e);
         }
     }

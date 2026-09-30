@@ -78,7 +78,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         targetWriteFailed = false;
         temporaryCreated = false;
         tableInfo = descriptor.getTableInfo();
-        log.info("JDBC目标准备开始 table={} mode={}", table.getTable(), mode);
+        log.info("JDBC目标准备开始 runId={} table={} mode={}", LoggingSupport.currentRunId(), table.getTable(), mode);
         validateCapabilities(schema);
         try {
             DatabaseMetadataService metadata = new DatabaseMetadataService();
@@ -108,7 +108,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 if (tableInfo != null) migrateIndexes(q, tableInfo, existingTable);
             }
             prepared = true;
-            log.info("JDBC目标准备完成 table={} mode={} temporary={}", table.getTable(), mode, replaceMode);
+            log.info("JDBC目标准备完成 runId={} table={} mode={} temporary={}", LoggingSupport.currentRunId(), table.getTable(), mode, replaceMode);
             List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
             preparationErrors.clear();
             return errors;
@@ -169,6 +169,8 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     private void handleMetadataError(String message, Throwable error) {
+        log.warn("JDBC目标元数据迁移失败 runId={} table={} policy={} message={}",
+                LoggingSupport.currentRunId(), table.getTable(), metadataErrorPolicy, LoggingSupport.message(error));
         if (metadataErrorPolicy == MetadataErrorPolicy.FAIL)
             throw new SchemaLoomException(message, error);
         preparationErrors.add(new EtlError(0, "metadata", new SchemaLoomException(message, error)));
@@ -200,11 +202,13 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                         public int getBatchSize() { return batch.size(); }
                     });
             incrementWrittenRows(b.size());
-            log.debug("JDBC目标批次写入完成 table={} rows={}", writeTable.getTable(), b.size());
+            log.debug("JDBC目标批次写入完成 runId={} table={} rows={}",
+                    LoggingSupport.currentRunId(), writeTable.getTable(), b.size());
             return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
             targetWriteFailed = true;
-            log.warn("JDBC目标批次写入失败 table={} rows={} message={}", writeTable.getTable(), b.size(), LoggingSupport.message(e));
+            log.warn("JDBC目标批次写入失败 runId={} table={} rows={} message={}",
+                    LoggingSupport.currentRunId(), writeTable.getTable(), b.size(), LoggingSupport.message(e));
             throw e;
         }
     }
@@ -234,7 +238,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                         if (!tables.isEmpty())
                             execution.execute("drop replaced target table", dialect.dropTableSql(dialect.quote(table)));
                         execution.execute("rename replacement target table", dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
-                        log.info("JDBC目标替换完成 table={}", table.getTable());
+                        log.info("JDBC目标替换完成 runId={} table={}", LoggingSupport.currentRunId(), table.getTable());
                     }
                 } catch (RuntimeException e) {
                     targetWriteFailed = true;

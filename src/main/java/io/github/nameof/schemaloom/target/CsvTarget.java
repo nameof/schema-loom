@@ -2,6 +2,9 @@ package io.github.nameof.schemaloom.target;
 
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.codec.TextValueCodec;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.nio.charset.*;
@@ -9,6 +12,7 @@ import java.nio.file.*;
 import java.util.*;
 
 public final class CsvTarget implements Target {
+    private static final Logger log = LoggerFactory.getLogger(CsvTarget.class);
     private final Path path;
     private final Charset charset;
     private final char delimiter;
@@ -49,6 +53,7 @@ public final class CsvTarget implements Target {
                 writer.write(joinHeader());
                 writer.write("\n");
             }
+            log.info("CSV 目标准备完成 runId={} file={} mode={}", LoggingSupport.currentRunId(), path.getFileName(), mode);
             return Collections.emptyList();
         } catch (IOException e) {
             throw new SchemaLoomException("cannot prepare CSV target", e);
@@ -80,9 +85,13 @@ public final class CsvTarget implements Target {
                 writer.write("\n");
             }
             writer.flush();
+            log.debug("CSV 目标批次写入完成 runId={} file={} rows={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), batch.size());
             return new BatchWriteResult(batch.size(), 0);
         } catch (IOException | RuntimeException e) {
             preservePartial();
+            log.warn("CSV 写入失败 runId={} file={} partialPreserved={} message={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), part != null, LoggingSupport.message(e));
             throw new SchemaLoomException("cannot write CSV", e);
         }
     }
@@ -101,6 +110,7 @@ public final class CsvTarget implements Target {
                     Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
+            log.info("CSV 目标关闭完成 runId={} file={}", LoggingSupport.currentRunId(), path.getFileName());
         } catch (IOException e) {
             writer = null;
             preservePartial();

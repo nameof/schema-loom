@@ -41,6 +41,8 @@ public final class EtlTask implements Callable<EtlResult> {
         readCounter[0] = transformedCounter[0] = filteredCounter[0] = writtenCounter[0] = failedCounter[0] = batchCounter[0] = 0;
         Instant start = Instant.now();
         String runId = LoggingSupport.runId();
+        String previousRunId = LoggingSupport.bindRunId(runId);
+        try {
         log.info("ETL任务开始 runId={} errorPolicy={} targetMode={}", runId, errorPolicy, targetMode);
         long total = -1L, read = 0, transformed = 0, filtered = 0, written = 0, failed = 0;
         List<EtlError> errors = new ArrayList<EtlError>();
@@ -64,6 +66,7 @@ public final class EtlTask implements Callable<EtlResult> {
             final long observedTotal = total;
             source.read(batch -> {
                 if (Thread.currentThread().isInterrupted()) throw new SchemaLoomException("interrupted");
+                long failedBeforeBatch = failedCounter[0];
                 List<DataRecord> out = new ArrayList<DataRecord>();
                 for (DataRecord r : batch.getRecords()) {
                     readCounter[0]++;
@@ -119,6 +122,9 @@ public final class EtlTask implements Callable<EtlResult> {
                     }
                 }
                 batchCounter[0]++;
+                if (failedCounter[0] > failedBeforeBatch)
+                    log.warn("ETL批次存在失败记录 runId={} batch={} failedInBatch={}",
+                            runId, batchCounter[0], failedCounter[0] - failedBeforeBatch);
                 log.debug("ETL批次完成 runId={} batch={} read={} written={} failed={}", runId,
                         batchCounter[0], readCounter[0], writtenCounter[0], failedCounter[0]);
                 notifyProgress(new EtlProgress(observedTotal, batchCounter[0], readCounter[0],
@@ -176,6 +182,9 @@ public final class EtlTask implements Callable<EtlResult> {
                 runId, status, result.getElapsedMillis(), read, transformed, filtered, written, failed);
         notifyCompleted(result);
         return result;
+        } finally {
+            LoggingSupport.restoreRunId(previousRunId);
+        }
     }
 
     private void notifyStarted(EtlProgress progress) {
@@ -206,10 +215,14 @@ public final class EtlTask implements Callable<EtlResult> {
     }
 
     private void notifyListenerError(ListenerCallback callback, Throwable error) {
+        log.warn("ETL监听器回调失败 runId={} callback={} message={}",
+                LoggingSupport.currentRunId(), callback, LoggingSupport.message(error));
         if (listenerErrorHandler == null) return;
         try {
             listenerErrorHandler.onError(callback, context, error);
         } catch (Throwable ignored) {
+            log.warn("ETL监听器错误处理失败 runId={} callback={} message={}",
+                    LoggingSupport.currentRunId(), callback, LoggingSupport.message(ignored));
         }
     }
 
