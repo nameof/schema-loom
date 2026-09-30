@@ -5,7 +5,10 @@ import io.github.nameof.schemaloom.codec.JdbcValueCodec;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
 import io.github.nameof.schemaloom.execution.JdbcExecutionAdapter;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
 import io.github.nameof.schemaloom.metadata.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.*;
 import java.util.*;
@@ -22,6 +25,7 @@ import java.util.*;
  * 需要在目标库创建 VIEW 定义时，应使用独立的 {@code JdbcViewMigrationTask}，而不是把 VIEW 当普通表写入数据。</p>
  */
 public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
+    private static final Logger log = LoggerFactory.getLogger(JdbcTableTarget.class);
     private final ConnectionProvider provider;
     private final QualifiedTableName table;
     private final DatabaseDialect dialect;
@@ -74,6 +78,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         targetWriteFailed = false;
         temporaryCreated = false;
         tableInfo = descriptor.getTableInfo();
+        log.info("JDBC目标准备开始 table={} mode={}", table.getTable(), mode);
         validateCapabilities(schema);
         try {
             DatabaseMetadataService metadata = new DatabaseMetadataService();
@@ -103,6 +108,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 if (tableInfo != null) migrateIndexes(q, tableInfo, existingTable);
             }
             prepared = true;
+            log.info("JDBC目标准备完成 table={} mode={} temporary={}", table.getTable(), mode, replaceMode);
             List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
             preparationErrors.clear();
             return errors;
@@ -194,9 +200,11 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                         public int getBatchSize() { return batch.size(); }
                     });
             incrementWrittenRows(b.size());
+            log.debug("JDBC目标批次写入完成 table={} rows={}", writeTable.getTable(), b.size());
             return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
             targetWriteFailed = true;
+            log.warn("JDBC目标批次写入失败 table={} rows={} message={}", writeTable.getTable(), b.size(), LoggingSupport.message(e));
             throw e;
         }
     }
@@ -226,6 +234,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                         if (!tables.isEmpty())
                             execution.execute("drop replaced target table", dialect.dropTableSql(dialect.quote(table)));
                         execution.execute("rename replacement target table", dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
+                        log.info("JDBC目标替换完成 table={}", table.getTable());
                     }
                 } catch (RuntimeException e) {
                     targetWriteFailed = true;

@@ -2,6 +2,9 @@ package io.github.nameof.schemaloom.execution;
 
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCreator;
@@ -22,6 +25,7 @@ import java.util.List;
  * 不拥有 ConnectionProvider 或其连接的生命周期。
  */
 public final class JdbcExecutionAdapter {
+    private static final Logger log = LoggerFactory.getLogger(JdbcExecutionAdapter.class);
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transaction;
 
@@ -36,11 +40,17 @@ public final class JdbcExecutionAdapter {
 
     public <T> T query(String stage, String sql, List<Object> params, int fetchSize, Integer maxRows,
                        ResultSetHandler<T> handler) {
+        log.debug("JDBC查询开始 stage={} parameterCount={} fetchSize={} maxRows={}", stage,
+                params == null ? 0 : params.size(), fetchSize, maxRows);
         try {
-            return jdbc.query(statement(sql, params, fetchSize, maxRows), handler::extractData);
+            T result = jdbc.query(statement(sql, params, fetchSize, maxRows), handler::extractData);
+            log.debug("JDBC查询完成 stage={}", stage);
+            return result;
         } catch (DataAccessException e) {
+            log.warn("JDBC查询失败 stage={} message={}", stage, LoggingSupport.message(e));
             throw failed(stage, e);
         } catch (RuntimeException e) {
+            log.warn("JDBC查询失败 stage={} message={}", stage, LoggingSupport.message(e));
             throw convert(stage, e);
         }
     }
@@ -56,19 +66,24 @@ public final class JdbcExecutionAdapter {
     }
 
     public void execute(String stage, String sql) {
+        log.debug("JDBC执行开始 stage={}", stage);
         try {
             jdbc.execute(sql);
+            log.debug("JDBC执行完成 stage={}", stage);
         } catch (DataAccessException e) {
+            log.warn("JDBC执行失败 stage={} message={}", stage, LoggingSupport.message(e));
             throw failed(stage, e);
         } catch (RuntimeException e) {
+            log.warn("JDBC执行失败 stage={} message={}", stage, LoggingSupport.message(e));
             throw convert(stage, e);
         }
     }
 
     /** 每次调用对应一个短事务；绑定和回调的运行时异常同样会触发回滚。 */
     public int[] batchUpdate(final String stage, final String sql, final BatchSetter setter) {
+        log.debug("JDBC批量写入开始 stage={} batchSize={}", stage, setter.getBatchSize());
         try {
-            return transaction.execute(status -> {
+            int[] resultCounts = transaction.execute(status -> {
                 int[] counts = jdbc.batchUpdate(sql, new org.springframework.jdbc.core.BatchPreparedStatementSetter() {
                     public void setValues(PreparedStatement statement, int row) throws SQLException {
                         setter.setValues(statement, row);
@@ -79,10 +94,14 @@ public final class JdbcExecutionAdapter {
                 verifyBatchCounts(counts);
                 return counts;
             });
+            log.debug("JDBC批量写入完成 stage={} rows={}", stage, resultCounts == null ? 0 : resultCounts.length);
+            return resultCounts;
         } catch (DataAccessException e) {
+            log.warn("JDBC批量写入失败 stage={} message={}", stage, LoggingSupport.message(e));
             throw failed(stage, e);
         } catch (RuntimeException e) {
             if (e instanceof SchemaLoomException) throw e;
+            log.warn("JDBC批量写入失败 stage={} message={}", stage, LoggingSupport.message(e));
             throw failed(stage, e);
         }
     }

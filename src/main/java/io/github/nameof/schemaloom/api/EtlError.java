@@ -1,5 +1,7 @@
 package io.github.nameof.schemaloom.api;
 
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+
 public final class EtlError {
     private final long row;
     private final String stage;
@@ -14,9 +16,7 @@ public final class EtlError {
     }
 
     private static String sanitize(String s) {
-        if (s == null) return "";
-        String v = s.replaceAll("(?i)(password|passwd|pwd)\\s*[=:]\\s*[^,; ]+", "$1=<redacted>");
-        return v.substring(0, Math.min(500, v.length()));
+        return LoggingSupport.message(s);
     }
 
     public long getRow() {

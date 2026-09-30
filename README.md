@@ -70,6 +70,17 @@ JDBC Source 与 Target 在内部通过 Spring JDBC 执行适配层统一管理�
 - `JdbcDriverLoader` 可从受控目录加载驱动，支持多个驱动描述文件、优先级、URL 前缀和服务端版本范围。
 - 驱动使用独立 ClassLoader，不注册到全局 `DriverManager`，便于同一进程中隔离不同版本的驱动。
 
+### 日志
+
+SchemaLoom 只依赖 SLF4J API，不内置日志实现。宿主应用应自行选择与 SLF4J 2.x 兼容的 Logback、Log4j2 或 JUL 适配器，并通过 `io.github.nameof.schemaloom` 配置日志级别。
+
+- `INFO`：ETL 和视图迁移的开始、结束、状态、耗时和统计摘要。
+- `DEBUG`：批次进度、JDBC 执行阶段、驱动候选和队列信息。
+- `WARN`：批次降级、跳过、连接重试和队列拒绝。
+- `ERROR`：任务、迁移和资源关闭失败，带脱敏后的异常堆栈。
+
+每次任务会生成内部 `runId` 用于关联同一执行过程。日志不会主动输出密码、令牌、用户名、查询参数或行数据；异常文本会截断并对常见凭据字段脱敏。宿主应用仍应审查第三方 JDBC 驱动的异常信息和日志配置。
+
 ## 工作方式
 
 每个任务遵循固定的数据流：
@@ -566,7 +577,6 @@ mvn -Pperformance test
 
 ## 核心功能&BUG TODO
 - CSV 配置：自定义quote、escape
-- 日志输出
 - 代码审计：所有逻辑均正确关闭已打开资源
 - 其他数据源支持：PGSQL、MONGO、JSON
 

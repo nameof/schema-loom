@@ -5,8 +5,11 @@ import io.github.nameof.schemaloom.engine.EtlTask;
 
 import java.util.concurrent.*;
 import io.github.nameof.schemaloom.api.EtlResult;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class LocalTaskExecutor implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(LocalTaskExecutor.class);
     private final ThreadPoolExecutor executor;
 
     public LocalTaskExecutor() {
@@ -20,8 +23,11 @@ public final class LocalTaskExecutor implements AutoCloseable {
 
     public Future<io.github.nameof.schemaloom.api.EtlResult> submit(EtlTask task) {
         try {
-            return executor.submit(task);
+            Future<io.github.nameof.schemaloom.api.EtlResult> future = executor.submit(task);
+            log.debug("ETL任务已提交 queueSize={}", executor.getQueue().size());
+            return future;
         } catch (RejectedExecutionException e) {
+            log.warn("ETL任务提交被拒绝 queueSize={}", executor.getQueue().size());
             throw new SchemaLoomException("task queue is full", e);
         }
     }
@@ -29,13 +35,17 @@ public final class LocalTaskExecutor implements AutoCloseable {
     public Future<EtlResult> submit(Callable<EtlResult> task) {
         if (task == null) throw new IllegalArgumentException("task is required");
         try {
-            return executor.submit(task);
+            Future<EtlResult> future = executor.submit(task);
+            log.debug("异步任务已提交 queueSize={}", executor.getQueue().size());
+            return future;
         } catch (RejectedExecutionException e) {
+            log.warn("异步任务提交被拒绝 queueSize={}", executor.getQueue().size());
             throw new SchemaLoomException("task queue is full", e);
         }
     }
 
     public void close() {
         executor.shutdown();
+        log.debug("本地任务执行器已关闭");
     }
 }

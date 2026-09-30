@@ -3,12 +3,16 @@ package io.github.nameof.schemaloom.engine;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.metadata.TableInfo;
 import io.github.nameof.schemaloom.transform.FieldMapping;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.Callable;
 
 public final class EtlTask implements Callable<EtlResult> {
+    private static final Logger log = LoggerFactory.getLogger(EtlTask.class);
     private final Source source;
     private final Target target;
     private final Transformer transformer;
@@ -36,12 +40,15 @@ public final class EtlTask implements Callable<EtlResult> {
     public EtlResult run() {
         readCounter[0] = transformedCounter[0] = filteredCounter[0] = writtenCounter[0] = failedCounter[0] = batchCounter[0] = 0;
         Instant start = Instant.now();
+        String runId = LoggingSupport.runId();
+        log.info("ETL任务开始 runId={} errorPolicy={} targetMode={}", runId, errorPolicy, targetMode);
         long total = -1L, read = 0, transformed = 0, filtered = 0, written = 0, failed = 0;
         List<EtlError> errors = new ArrayList<EtlError>();
         EtlStatus status = EtlStatus.SUCCESS;
         try {
             total = source.count();
             if (total < 0) total = -1L;
+            log.debug("ETL任务读取总数 runId={} total={}", runId, total);
             notifyStarted(new EtlProgress(total, 0, 0, 0, 0, 0, 0, start));
 
             SchemaDescriptor sourceDescriptor = source.schema();
@@ -88,6 +95,8 @@ public final class EtlTask implements Callable<EtlResult> {
                         failedCounter[0] += wr.getFailed();
                     } catch (Throwable e) {
                         if (errorPolicy == ErrorPolicy.ISOLATE_AND_CONTINUE) {
+                            log.warn("批次写入失败，降级为逐行写入 runId={} batch={} message={}", runId,
+                                    batchCounter[0] + 1, LoggingSupport.message(e));
                             for (DataRecord r : out) {
                                 try {
                                     BatchWriteResult single = target.write(new RecordBatch(schema, Collections.singletonList(r)));
@@ -99,6 +108,8 @@ public final class EtlTask implements Callable<EtlResult> {
                                 }
                             }
                         } else if (errorPolicy == ErrorPolicy.SKIP_BATCH) {
+                            log.warn("批次写入失败，跳过批次 runId={} batch={} size={} message={}", runId,
+                                    batchCounter[0] + 1, out.size(), LoggingSupport.message(e));
                             failedCounter[0] += out.size();
                             addError(errors, new EtlError(readCounter[0], "write", e));
                         } else {
@@ -108,6 +119,8 @@ public final class EtlTask implements Callable<EtlResult> {
                     }
                 }
                 batchCounter[0]++;
+                log.debug("ETL批次完成 runId={} batch={} read={} written={} failed={}", runId,
+                        batchCounter[0], readCounter[0], writtenCounter[0], failedCounter[0]);
                 notifyProgress(new EtlProgress(observedTotal, batchCounter[0], readCounter[0],
                         transformedCounter[0], filteredCounter[0], writtenCounter[0], failedCounter[0], start));
             });
@@ -131,17 +144,23 @@ public final class EtlTask implements Callable<EtlResult> {
             } else {
                 status = EtlStatus.FAILED;
                 addError(errors, new EtlError(read, "task", e));
+                log.error("ETL任务失败 runId={} stage=task message={}", runId, LoggingSupport.message(e),
+                        LoggingSupport.safe(e));
             }
         } finally {
             try {
                 if (target != null) target.close();
             } catch (Throwable e) {
                 addError(errors, new EtlError(read, "close-target", e));
+                log.error("目标资源关闭失败 runId={} cleanupFailed=true message={}", runId,
+                        LoggingSupport.message(e), LoggingSupport.safe(e));
             }
             try {
                 if (source != null) source.close();
             } catch (Throwable e) {
                 addError(errors, new EtlError(read, "close-source", e));
+                log.error("源资源关闭失败 runId={} cleanupFailed=true message={}", runId,
+                        LoggingSupport.message(e), LoggingSupport.safe(e));
             }
         }
         Instant ended = Instant.now();
@@ -153,6 +172,8 @@ public final class EtlTask implements Callable<EtlResult> {
                 : new WriteStatistics(written, 0, failed, Collections.<String, Long>emptyMap());
         EtlResult result = new EtlResult(status, read, transformed, filtered, written, failed, start, ended, errors,
                 readStatistics, writeStatistics);
+        log.info("ETL任务结束 runId={} status={} elapsedMs={} read={} transformed={} filtered={} written={} failed={}",
+                runId, status, result.getElapsedMillis(), read, transformed, filtered, written, failed);
         notifyCompleted(result);
         return result;
     }

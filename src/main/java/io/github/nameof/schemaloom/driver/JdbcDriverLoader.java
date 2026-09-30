@@ -3,6 +3,9 @@ package io.github.nameof.schemaloom.driver;
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import cn.hutool.core.util.ReUtil;
 import cn.hutool.core.util.StrUtil;
+import io.github.nameof.schemaloom.internal.LoggingSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.*;
 import java.nio.file.*;
@@ -10,6 +13,7 @@ import java.sql.*;
 import java.util.*;
 
 public final class JdbcDriverLoader implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(JdbcDriverLoader.class);
     // 此缓存只保存驱动实例和类加载器，不保存 JDBC Connection。
     private final List<DriverDescriptor> descriptors;
     private final Map<String, Entry> cache = new HashMap<String, Entry>();
@@ -45,6 +49,8 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 candidates.add(d);
         }
         sort(candidates);
+        log.debug("JDBC驱动候选已确定 databaseType={} candidateCount={} driverId={}",
+                config.getDatabaseType(), candidates.size(), driverId);
         if (driverId != null && candidates.isEmpty()) {
             throw new SchemaLoomException("driver not found: " + driverId);
         }
@@ -61,10 +67,14 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 Properties p = config.getProperties();
                 if (config.getUsername() != null) p.setProperty("user", config.getUsername());
                 if (config.getPassword() != null) p.setProperty("password", config.getPassword());
-                return open(d, url, p);
+                ConnectionProvider provider = open(d, url, p);
+                log.info("JDBC连接已建立 databaseType={} driverId={}", config.getDatabaseType(), d.getId());
+                return provider;
             } catch (Throwable e) {
                 last = e;
                 lastDriverId = d.getId();
+                log.warn("JDBC驱动连接尝试失败 databaseType={} driverId={} message={}",
+                        config.getDatabaseType(), d.getId(), LoggingSupport.message(e));
                 // 未指定驱动时允许降级尝试下一个候选；指定驱动则保留原始失败原因。
                 if (driverId != null) break;
             }
@@ -191,6 +201,7 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 else failure.addSuppressed(ex);
             }
         cache.clear();
+        log.debug("JDBC驱动加载器已关闭");
         if (failure != null) throw failure;
     }
 
