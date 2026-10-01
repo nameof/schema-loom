@@ -169,6 +169,10 @@ public final class DatabaseMetadataService {
             Integer typeNumber = column.getColumnDataType().getJavaSqlType().getVendorTypeNumber();
             if (typeNumber == null || typeNumber == java.sql.Types.NULL)
                 throw new SchemaLoomException("列缺少有效 JDBC 类型: " + column.getName());
+            // Oracle NUMBER 在通用 SchemaCrawler 模式下可能被误报为 BIT。
+            if (typeNumber == java.sql.Types.BIT
+                    && "NUMBER".equalsIgnoreCase(column.getColumnDataType().getDatabaseSpecificTypeName()))
+                typeNumber = java.sql.Types.NUMERIC;
             LogicalType logicalType = JdbcTypes.logical(typeNumber);
             Integer size = column.getSize();
             Integer length = logicalType == LogicalType.STRING || logicalType == LogicalType.BINARY ? size : null;
