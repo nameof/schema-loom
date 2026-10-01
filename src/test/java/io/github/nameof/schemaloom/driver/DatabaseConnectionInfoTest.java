@@ -15,6 +15,13 @@ public class DatabaseConnectionInfoTest {
         assertFalse(info.toString().contains("secret"));
     }
 
+    @Test public void postgresDefaultsToPublicSchemaAndPort() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.POSTGRESQL, "host", 0, "db", "u", "p");
+        assertEquals(5432, info.getPort());
+        assertEquals("public", info.getSchema());
+        assertEquals("jdbc", "jdbc");
+    }
+
     @Test public void copiesProperties() {
         Properties input = new Properties();
         input.setProperty("ssl", "true");

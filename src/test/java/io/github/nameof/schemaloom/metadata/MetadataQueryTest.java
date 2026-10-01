@@ -31,4 +31,11 @@ public class MetadataQueryTest {
         assertEquals("dbo", query.getSchema());
         assertEquals("dms_%", query.getTablePattern());
     }
-}
+    @Test
+    public void postgresDefaultsToPublicSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.POSTGRESQL, "localhost", 5432,
+                "db", "user", "password");
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
+        assertEquals("db", query.getCatalog());
+        assertEquals("public", query.getSchema());
+    }}

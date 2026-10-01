@@ -22,10 +22,13 @@ public final class MetadataQuery {
         if (connectionInfo == null) throw new IllegalArgumentException("连接配置不能为空");
         if (connectionInfo.getDatabaseType() == DatabaseType.MYSQL)
             return new MetadataQuery(connectionInfo.getDatabase(), null, tablePattern);
+        if (connectionInfo.getDatabaseType() == DatabaseType.POSTGRESQL)
+            return new MetadataQuery(connectionInfo.getDatabase(), connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);
         String catalog = connectionInfo.getCatalog();
         String schema = connectionInfo.getSchema();
         if (catalog == null && schema == null)
             return new MetadataQuery(connectionInfo.getDatabase(), null, tablePattern);
+
         return new MetadataQuery(catalog, schema, tablePattern);
     }
 

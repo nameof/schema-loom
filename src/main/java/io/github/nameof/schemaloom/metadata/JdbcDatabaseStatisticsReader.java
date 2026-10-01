@@ -35,6 +35,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsIgnoreCase(product, "mysql")) return mysqlTable(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleTable(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerTable(name);
+        if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlTable(name);
         throw unsupported();
     }
 
@@ -42,6 +43,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsIgnoreCase(product, "mysql")) return mysqlSchema(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleSchema(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerSchema(name);
+        if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlSchema(name);
         throw unsupported();
     }
 
@@ -130,6 +132,23 @@ final class JdbcDatabaseStatisticsReader {
         return new SchemaStatistics(number(tables, "total_tables"), rows, data);
     }
 
+    private TableStatistics postgresqlTable(QualifiedTableName name) {
+        String schema = first(name.getSchema(), currentSchema(), "public");
+        Map<String, Object> row = one("SELECT COALESCE(s.n_live_tup, 0) row_count, pg_relation_size(c.oid) data_length, pg_indexes_size(c.oid) index_length " +
+                "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_stat_all_tables s ON s.relid = c.oid " +
+                "WHERE n.nspname = ? AND c.relname = ? AND c.relkind = 'r'", schema, name.getTable());
+        long rows = number(row, "row_count"), data = number(row, "data_length");
+        return new TableStatistics(rows, data, number(row, "index_length"), rows == 0 ? 0 : data / rows);
+    }
+
+    private SchemaStatistics postgresqlSchema(SchemaInfo name) {
+        String schema = first(name.getName(), currentSchema(), "public");
+        Map<String, Object> row = oneAggregate("SELECT COUNT(*) total_tables, COALESCE(SUM(s.n_live_tup), 0) total_rows, " +
+                "COALESCE(SUM(pg_relation_size(c.oid)), 0) total_data_length FROM pg_class c " +
+                "JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_stat_all_tables s ON s.relid = c.oid " +
+                "WHERE n.nspname = ? AND c.relkind = 'r'", schema);
+        return new SchemaStatistics(number(row, "total_tables"), number(row, "total_rows"), number(row, "total_data_length"));
+    }
     private Map<String, Object> one(String sql, Object... args) {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) throw new SchemaLoomException("table not found");

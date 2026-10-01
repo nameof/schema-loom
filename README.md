@@ -48,7 +48,7 @@ JDBC Source 与 Target 在内部通过 Spring JDBC 执行适配层统一管理�
 | CSV | `CsvSource` | `CsvTarget` | UTF-8、标题行、分隔符和 Schema 推断 |
 | XLSX | `XlsxSource` | `XlsxTarget` | 指定 Sheet、流式读取和多 Sheet 写入 |
 
-数据库方言当前覆盖 MySQL、Oracle 和 SQL Server。数据库目标支持 `APPEND` 与 `REPLACE`，目标表不存在时会依据输入 Schema 建表。
+数据库方言当前覆盖 MySQL、Oracle、SQL Server 和 PostgreSQL。PostgreSQL 未显式指定 Schema 时默认使用 `public`。数据库目标支持 `APPEND` 与 `REPLACE`，目标表不存在时会依据输入 Schema 建表。
 
 ### 类型化 Schema 与转换
 
@@ -380,7 +380,7 @@ ConnectionProvider provider =
 
 `JdbcDriverLoader` 无参构造优先读取应用工作目录下的 `drivers`，即 `${user.dir}/drivers`；未找到时才回退到 classpath 下的 `drivers` 资源目录，对应源码目录 `src/main/resources/drivers`。生产发布时将 `drivers` 与 `application.jar` 放在同一目录。每个 `.properties` 文件描述一个驱动，`classpath` 只能引用该目录内的 JAR：
 
-仓库跟踪 `mysql8.properties`、`oracle23.properties` 和 `sqlserver2022.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
+仓库跟踪 `mysql8.properties`、`oracle23.properties`、`sqlserver2022.properties` 和 `postgresql16.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
 
 目录结构：
 
@@ -515,19 +515,66 @@ CSV 文本 / XLSX 单元格 / JDBC 类型化参数
 mvn test
 ```
 
-运行 MySQL 集成测试前，准备可写的测试数据库。测试用例约定的环境变量如下：
+容器集成测试按数据库依次执行，先在本地设置一次性测试密码。Oracle 与 SQL Server 同时运行可能超过 Podman 虚拟机的内存限制；测试驱动 JAR 须与 `drivers` 目录中的描述文件同目录。
+
+MySQL 8：
 
 ```powershell
+$env:SCHEMALOOM_IT_MYSQL_PASSWORD = "<本地一次性测试密码>"
+.\scripts\start-mysql-integration.ps1
 $env:SCHEMALOOM_IT_MYSQL_HOST = "localhost"
-$env:SCHEMALOOM_IT_MYSQL_PORT = "3306"
-$env:SCHEMALOOM_IT_MYSQL_DATABASE = "test"
-$env:SCHEMALOOM_IT_MYSQL_USER = "test"
-$env:SCHEMALOOM_IT_MYSQL_PASSWORD = "<password>"
-# 可选：让集成测试通过 JdbcDriverLoader 加载自定义驱动
+$env:SCHEMALOOM_IT_MYSQL_PORT = "13306"
+$env:SCHEMALOOM_IT_MYSQL_DATABASE = "schemaloom_it"
+$env:SCHEMALOOM_IT_MYSQL_USER = "schemaloom"
 $env:SCHEMALOOM_IT_MYSQL_DRIVER_ID = "mysql8"
-mvn -Dtest=JdbcEtlIntegrationTest test
+mvn -Pintegration "-Dtest=JdbcEtlIntegrationTest" test
+.\scripts\stop-mysql-integration.ps1
 ```
 
+Oracle Free 26ai，测试密码仅支持字母、数字、下划线和感叹号且至少 8 位：
+
+```powershell
+$env:SCHEMALOOM_IT_ORACLE_PASSWORD = "<本地一次性测试密码>"
+.\scripts\start-oracle-integration.ps1
+$env:SCHEMALOOM_IT_ORACLE_HOST = "localhost"
+$env:SCHEMALOOM_IT_ORACLE_PORT = "11521"
+$env:SCHEMALOOM_IT_ORACLE_DATABASE = "FREEPDB1"
+$env:SCHEMALOOM_IT_ORACLE_DRIVER_ID = "oracle23"
+$env:SC_WITHOUT_DATABASE_PLUGIN = "oracle"
+mvn -Pintegration "-Dtest=OracleEtlIntegrationTest" test
+.\scripts\stop-oracle-integration.ps1
+```
+
+SQL Server 2022：
+
+```powershell
+$env:SCHEMALOOM_IT_SQLSERVER_PASSWORD = "<本地一次性复杂密码>"
+.\scripts\start-sqlserver-integration.ps1
+$env:SCHEMALOOM_IT_SQLSERVER_HOST = "localhost"
+$env:SCHEMALOOM_IT_SQLSERVER_PORT = "11433"
+$env:SCHEMALOOM_IT_SQLSERVER_DATABASE = "master"
+$env:SCHEMALOOM_IT_SQLSERVER_DRIVER_ID = "sqlserver2022"
+Remove-Item Env:SC_WITHOUT_DATABASE_PLUGIN -ErrorAction SilentlyContinue
+mvn -Pintegration "-Dtest=SqlServerEtlIntegrationTest" test
+.\scripts\stop-sqlserver-integration.ps1
+```
+
+PostgreSQL 16：
+
+```powershell
+    .\scripts\start-postgresql-integration.ps1
+$env:SCHEMALOOM_IT_POSTGRESQL_HOST = "localhost"
+$env:SCHEMALOOM_IT_POSTGRESQL_PORT = "15432"
+$env:SCHEMALOOM_IT_POSTGRESQL_DATABASE = "schemaloom_it"
+$env:SCHEMALOOM_IT_POSTGRESQL_USER = "schemaloom"
+$env:SCHEMALOOM_IT_POSTGRESQL_PASSWORD = "<本地一次性测试密码>"
+$env:SCHEMALOOM_IT_POSTGRESQL_DRIVER_ID = "postgresql16"
+$env:SC_WITHOUT_DATABASE_PLUGIN = "postgresql"
+mvn -Pintegration "-Dtest=PostgreSqlIntegrationTest" test
+.\scripts\stop-postgresql-integration.ps1
+```
+
+Oracle 和 SQL Server 的容器测试验证已存在目标表的 `APPEND`、表元数据及统计；MySQL 和 PostgreSQL 的测试验证 `REPLACE`、表元数据、统计及视图迁移。Oracle 的 `SC_WITHOUT_DATABASE_PLUGIN` 使当前 SchemaCrawler 使用通用 JDBC 模式，以便采集 Free 26ai 普通用户的表。Oracle 视图定义迁移仍受当前 SchemaCrawler/Oracle LONG 定义读取限制，未列为通过项。不要把真实凭据提交到仓库。
 ## 性能测试
 
 ```powershell
@@ -544,7 +591,7 @@ mvn -Pperformance test
 以下内容属于规划，不代表当前版本已经实现：
 
 1. 完善 CSV/XLSX 的边界测试、百万行内存占用测试和更多数据库契约测试。
-2. 增加 Oracle、SQL Server 的真实集成验证，以及更多 JDBC 驱动共存场景。
+2. 增加更多 JDBC 驱动共存场景和不同数据库版本的真实集成验证。
 3. 补充自动重试、断点恢复、暂停和完整生命周期 Listener。
 4. 增强 Schema 演进、默认值、identity、注释、索引、外键和检查约束的复制能力。
 5. 发布稳定版本和版本化 API 文档，并评估 Java 17、SchemaCrawler 17 与 Spring JDBC 6 的升级。

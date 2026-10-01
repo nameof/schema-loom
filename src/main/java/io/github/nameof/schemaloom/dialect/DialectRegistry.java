@@ -11,6 +11,7 @@ public final class DialectRegistry {
         map.put(DatabaseType.MYSQL, new MySqlDialect());
         map.put(DatabaseType.ORACLE, new OracleDialect());
         map.put(DatabaseType.SQL_SERVER, new SqlServerDialect());
+        map.put(DatabaseType.POSTGRESQL, new PostgreSqlDialect());
     }
 
     public DatabaseDialect get(DatabaseType t) {

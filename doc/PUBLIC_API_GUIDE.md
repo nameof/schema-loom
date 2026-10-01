@@ -19,7 +19,7 @@
 </dependency>
 ```
 
-使用 JDBC 时，还需要提供对应数据库驱动。项目当前支持 `MYSQL`、`ORACLE`、`SQL_SERVER`，驱动可通过 `JdbcDriverLoader` 从受控的 `drivers` 目录加载。
+使用 JDBC 时，还需要提供对应数据库驱动。项目当前支持 `MYSQL`、`ORACLE`、`SQL_SERVER`、`POSTGRESQL`，驱动可通过 `JdbcDriverLoader` 从受控的 `drivers` 目录加载。
 
 ### 1.2 创建数据库连接配置
 

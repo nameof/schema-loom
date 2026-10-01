@@ -6,12 +6,15 @@ import io.github.nameof.schemaloom.engine.EtlTask;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.DatabaseMetadataService;
 import io.github.nameof.schemaloom.metadata.TableInfo;
+import io.github.nameof.schemaloom.metadata.SchemaInfo;
+import io.github.nameof.schemaloom.migration.JdbcViewMigrationTask;
 import io.github.nameof.schemaloom.source.JdbcTableSource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import org.junit.Assume;
 import org.junit.Test;
 
 import java.sql.*;
+import java.util.Properties;
 import static org.junit.Assert.*;
 
 /**
@@ -28,21 +31,29 @@ public class JdbcEtlIntegrationTest {
         String driverId = System.getenv("SCHEMALOOM_IT_MYSQL_DRIVER_ID");
         Assume.assumeTrue("set MySQL host, database, user and password variables", host != null && database != null && user != null && password != null);
         int port = portValue == null || portValue.trim().isEmpty() ? 3306 : Integer.parseInt(portValue);
-        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, host, port, database, user, password, driverId, null);
+        Properties connectionProperties = new Properties();
+        connectionProperties.setProperty("allowPublicKeyRetrieval", "true");
+        connectionProperties.setProperty("useSSL", "false");
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, host, port, database, user, password, driverId, connectionProperties);
         JdbcDriverLoader loader = new JdbcDriverLoader();
         ConnectionProvider setup = loader.connect(config);
         Connection c = setup.getConnection();
         Statement st = c.createStatement();
+        st.execute("DROP VIEW IF EXISTS schemaloom_target_view");
+        st.execute("DROP VIEW IF EXISTS schemaloom_source_view");
         st.execute("DROP TABLE IF EXISTS schemaloom_target");
         st.execute("DROP TABLE IF EXISTS schemaloom_source");
         st.execute("CREATE TABLE schemaloom_source (id INT PRIMARY KEY, name VARCHAR(100), amount DECIMAL(12,2))");
         st.execute("INSERT INTO schemaloom_source VALUES (1, 'alpha', 10.50), (2, 'beta', 20.75), (3, 'gamma', 0.00)");
+        st.execute("CREATE VIEW schemaloom_source_view AS SELECT id, name FROM schemaloom_source");
         st.close();
         TableInfo metadata = new DatabaseMetadataService().getTable(setup,
                 new QualifiedTableName(null, null, "schemaloom_source"));
         assertEquals(3, metadata.getColumns().size());
         assertNotNull(metadata.getPrimaryKey());
         assertEquals("id", metadata.getPrimaryKey().getColumns().get(0));
+        assertTrue(new DatabaseMetadataService().getSchemaStatistics(setup, new SchemaInfo(database, null)).getTotalTables() > 0);
+        assertNotNull(new DatabaseMetadataService().getTableStatistics(setup, new QualifiedTableName(database, null, "schemaloom_source")));
         setup.close();
 
         EtlResult result = EtlTask.builder()
@@ -52,6 +63,8 @@ public class JdbcEtlIntegrationTest {
         assertEquals(EtlStatus.SUCCESS, result.getStatus());
         assertEquals(3, result.getRead());
         assertEquals(3, result.getWritten());
+        EtlResult view = new JdbcViewMigrationTask(config, config, "schemaloom_source_view", "schemaloom_target_view", loader).run();
+        assertEquals(EtlStatus.SUCCESS, view.getStatus());
 
         ConnectionProvider verify = loader.connect(config);
         ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT id, name, amount FROM schemaloom_target ORDER BY id");

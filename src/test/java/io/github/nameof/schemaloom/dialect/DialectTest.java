@@ -45,6 +45,7 @@ public class DialectTest {
                 .mapping(LogicalType.STRING).getDdlType(string));
         assertEquals("DECIMAL(12,2)", registry.get(DatabaseType.SQL_SERVER)
                 .mapping(LogicalType.DECIMAL).getDdlType(decimal));
+        assertEquals("BYTEA", registry.get(DatabaseType.POSTGRESQL).mapping(LogicalType.BINARY).getDdlType(FieldSchema.of("payload", LogicalType.BINARY)));
         assertEquals("TIMESTAMP WITH TIME ZONE", registry.get(DatabaseType.ORACLE)
                 .mapping(LogicalType.OFFSET_TIME).getDdlType(FieldSchema.of("time", LogicalType.OFFSET_TIME)));
     }

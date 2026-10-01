@@ -32,7 +32,8 @@ public class DatabaseConnectionInfo {
         this.port = port == 0 ? JdbcUrlBuilder.defaultPort(type) : port;
         this.database = database.trim();
         this.catalog = normalize(catalog);
-        this.schema = normalize(schema);
+        String configuredSchema = normalize(schema);
+        this.schema = type == DatabaseType.POSTGRESQL && configuredSchema == null ? "public" : configuredSchema;
         this.username = user;
         this.password = password;
         this.driverId = normalize(driverId);
