@@ -1,5 +1,7 @@
 package io.github.nameof.schemaloom.migration;
 
+import cn.hutool.core.io.IoUtil;
+
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import io.github.nameof.schemaloom.dialect.*;
 import io.github.nameof.schemaloom.driver.*;
@@ -83,9 +85,19 @@ final class JdbcViewMigrator {
         return execution.query("read view definition", query.getSql(), query.getParameters(), 0, null,
                 new JdbcExecutionAdapter.ResultSetHandler<String>() {
                     public String extractData(ResultSet result) throws SQLException {
-                        if (!result.next() || result.getString(1) == null || result.getString(1).trim().isEmpty())
+                        if (!result.next())
                             throw new SchemaLoomException("view definition is unavailable; verify metadata permissions");
-                        return result.getString(1).trim();
+                        java.io.Reader reader = result.getCharacterStream(1);
+                        if (reader == null)
+                            throw new SchemaLoomException("view definition is unavailable; verify metadata permissions");
+                        try {
+                            String definition = IoUtil.read(reader);
+                            if (definition == null || definition.trim().isEmpty())
+                                throw new SchemaLoomException("view definition is unavailable; verify metadata permissions");
+                            return definition.trim();
+                        } finally {
+                            IoUtil.close(reader);
+                        }
                     }
                 });
     }

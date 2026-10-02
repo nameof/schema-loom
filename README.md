@@ -569,7 +569,6 @@ $env:SCHEMALOOM_IT_POSTGRESQL_DATABASE = "schemaloom_it"
 $env:SCHEMALOOM_IT_POSTGRESQL_USER = "schemaloom"
 $env:SCHEMALOOM_IT_POSTGRESQL_PASSWORD = "<本地一次性测试密码>"
 $env:SCHEMALOOM_IT_POSTGRESQL_DRIVER_ID = "postgresql16"
-$env:SC_WITHOUT_DATABASE_PLUGIN = "postgresql"
 mvn -Pintegration "-Dtest=PostgreSqlIntegrationTest" test
 .\scripts\stop-postgresql-integration.ps1
 ```
