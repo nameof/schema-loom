@@ -42,14 +42,22 @@ public class JdbcEtlIntegrationTest {
         st.execute("DROP VIEW IF EXISTS schemaloom_target_view");
         st.execute("DROP VIEW IF EXISTS schemaloom_source_view");
         st.execute("DROP TABLE IF EXISTS schemaloom_target");
+        st.execute("DROP TABLE IF EXISTS schemaloom_target_tmp");
         st.execute("DROP TABLE IF EXISTS schemaloom_source");
         st.execute("CREATE TABLE schemaloom_source (id INT PRIMARY KEY, name VARCHAR(100), amount DECIMAL(12,2))");
         st.execute("INSERT INTO schemaloom_source VALUES (1, 'alpha', 10.50), (2, 'beta', 20.75), (3, 'gamma', 0.00)");
         st.execute("CREATE VIEW schemaloom_source_view AS SELECT id, name FROM schemaloom_source");
+        st.execute("CREATE TABLE schemaloom_target (id INT PRIMARY KEY, name VARCHAR(100), amount DECIMAL(12,2))");
+        st.execute("INSERT INTO schemaloom_target VALUES (99, 'old', 99.99)");
         st.close();
         TableInfo metadata = new DatabaseMetadataService().getTable(setup,
                 new QualifiedTableName(null, null, "schemaloom_source"));
         assertEquals(3, metadata.getColumns().size());
+        assertEquals(database, metadata.getName().getCatalog());
+        assertNull(metadata.getName().getSchema());
+        assertEquals(LogicalType.DECIMAL, metadata.getColumns().get(2).getLogicalType());
+        assertEquals(Integer.valueOf(12), metadata.getColumns().get(2).getPrecision());
+        assertEquals(Integer.valueOf(2), metadata.getColumns().get(2).getScale());
         assertNotNull(metadata.getPrimaryKey());
         assertEquals("id", metadata.getPrimaryKey().getColumns().get(0));
         assertTrue(new DatabaseMetadataService().getSchemaStatistics(setup, new SchemaInfo(database, null)).getTotalTables() > 0);
@@ -73,6 +81,7 @@ public class JdbcEtlIntegrationTest {
             count++;
             assertEquals(count, rs.getInt("id"));
             assertNotNull(rs.getString("name"));
+            assertEquals(new java.math.BigDecimal(count == 1 ? "10.50" : count == 2 ? "20.75" : "0.00"), rs.getBigDecimal("amount"));
         }
         rs.close();
         assertEquals(3, count);
@@ -80,6 +89,8 @@ public class JdbcEtlIntegrationTest {
                 new QualifiedTableName(null, null, "schemaloom_target"));
         assertNotNull(targetMetadata.getPrimaryKey());
         assertEquals("id", targetMetadata.getPrimaryKey().getColumns().get(0));
+        assertTrue(new DatabaseMetadataService().listTables(verify,
+                new io.github.nameof.schemaloom.metadata.MetadataQuery(database, null, "schemaloom_target_tmp")).isEmpty());
         verify.close();
         loader.close();
     }

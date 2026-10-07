@@ -574,6 +574,8 @@ mvn -Pintegration "-Dtest=PostgreSqlIntegrationTest" test
 ```
 
 Oracle 和 SQL Server 的容器测试验证已存在目标表的 `APPEND`、表元数据及统计；MySQL 和 PostgreSQL 的测试验证 `REPLACE`、表元数据、统计及视图迁移。Oracle 的 `SC_WITHOUT_DATABASE_PLUGIN` 使当前 SchemaCrawler 使用通用 JDBC 模式，以便采集 Free 26ai 普通用户的表。Oracle 视图定义迁移仍受当前 SchemaCrawler/Oracle LONG 定义读取限制，未列为通过项。不要把真实凭据提交到仓库。
+
+当前集成测试还覆盖方言边界：标识符引用与保留字、catalog/schema 命名空间过滤、REPLACE 临时表切换、自增/identity、生成列、DECIMAL/字符串/二进制类型边界、默认值、索引和注释 SQL，以及视图定义查询参数。DialectTest 和 MetadataQueryTest 在无数据库环境下验证 SQL 生成与命名空间回退；四库集成测试在真实驱动可用时验证实际 DDL、元数据和数据值往返。
 ## 性能测试
 
 ```powershell

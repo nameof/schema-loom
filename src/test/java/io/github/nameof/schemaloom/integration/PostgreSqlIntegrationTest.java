@@ -33,15 +33,22 @@ public class PostgreSqlIntegrationTest {
             st.execute("DROP VIEW IF EXISTS schemaloom_target_view");
             st.execute("DROP VIEW IF EXISTS schemaloom_source_view");
             st.execute("DROP TABLE IF EXISTS schemaloom_target");
+            st.execute("DROP TABLE IF EXISTS schemaloom_target_tmp");
             st.execute("DROP TABLE IF EXISTS schemaloom_source");
             st.execute("CREATE TABLE schemaloom_source (id INTEGER PRIMARY KEY, name VARCHAR(100), amount NUMERIC(12,2))");
             st.execute("COMMENT ON TABLE schemaloom_source IS 'source table'");
             st.execute("CREATE INDEX schemaloom_source_name_idx ON schemaloom_source(name)");
             st.execute("INSERT INTO schemaloom_source VALUES (1, 'alpha', 10.50), (2, 'beta', 20.75), (3, 'gamma', 0.00)");
             st.execute("CREATE VIEW schemaloom_source_view AS SELECT id, name FROM schemaloom_source");
+            st.execute("CREATE TABLE schemaloom_target (id INTEGER PRIMARY KEY, name VARCHAR(100), amount NUMERIC(12,2))");
+            st.execute("INSERT INTO schemaloom_target VALUES (99, 'old', 99.99)");
             st.close();
             TableInfo metadata = new DatabaseMetadataService().getTable(setup, config.table("schemaloom_source"));
             assertEquals(3, metadata.getColumns().size());
+            assertEquals("public", metadata.getName().getSchema());
+            assertEquals(LogicalType.DECIMAL, metadata.getColumns().get(2).getLogicalType());
+            assertEquals(Integer.valueOf(12), metadata.getColumns().get(2).getPrecision());
+            assertEquals(Integer.valueOf(2), metadata.getColumns().get(2).getScale());
             assertNotNull(metadata.getPrimaryKey());
             assertTrue(new DatabaseMetadataService().getTableStatistics(setup, config.table("schemaloom_source")).getDataLength() > 0);
             assertTrue(new DatabaseMetadataService().getSchemaStatistics(setup, new SchemaInfo(null, "public")).getTotalTables() > 0);
@@ -61,6 +68,13 @@ public class PostgreSqlIntegrationTest {
             ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT COUNT(*) FROM \"public\".\"schemaloom_target\"");
             assertTrue(rs.next());
             assertEquals(3, rs.getInt(1));
+            assertTrue(new DatabaseMetadataService().listTables(verify,
+                    new MetadataQuery(database, "public", "schemaloom_target_tmp")).isEmpty());
+            ResultSet rows = verify.getConnection().createStatement().executeQuery("SELECT id, amount FROM public.schemaloom_target ORDER BY id");
+            assertTrue(rows.next());
+            assertEquals(1, rows.getInt(1));
+            assertEquals(new java.math.BigDecimal("10.50"), rows.getBigDecimal(2));
+            rows.close();
             rs.close();
         } finally {
             verify.close();

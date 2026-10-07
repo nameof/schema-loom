@@ -140,4 +140,86 @@ public class DialectTest {
         assertTrue(sql.get(0).contains("INDEX `ix_normal` ON `t` (`last_name`, `first_name`)") );
         assertTrue(sql.get(1).contains("UNIQUE INDEX `ux_email`") );
     }
+    @Test
+    public void quotesQualifiedAndReservedIdentifiersForEveryDialect() {
+        DialectRegistry registry = new DialectRegistry();
+        for (DatabaseType type : DatabaseType.values()) {
+            DatabaseDialect dialect = registry.get(type);
+            String quote = type == DatabaseType.MYSQL ? "`" : "\"";
+            assertEquals(quote + "select" + quote, dialect.quote("select"));
+            assertEquals(quote + "cat" + quote + "." + quote + "app" + quote + "." + quote + "order" + quote,
+                    dialect.quote(new QualifiedTableName("cat", "app", "order")));
+            assertEquals(quote + "a" + quote + quote + "b" + quote, dialect.quote("a" + quote + "b"));
+            assertEquals("DROP TABLE " + quote + "order" + quote, dialect.dropTableSql(dialect.quote("order")));
+        }
+    }
+
+    @Test
+    public void renamesQualifiedTablesAccordingToDatabaseSyntax() {
+        DialectRegistry registry = new DialectRegistry();
+        assertEquals("ALTER TABLE \"public\".\"old\" RENAME TO \"new\"",
+                registry.get(DatabaseType.POSTGRESQL).renameTableSql("\"public\".\"old\"", "\"public\".\"new\""));
+        assertEquals("ALTER TABLE \"OLD\" RENAME TO \"NEW\"",
+                registry.get(DatabaseType.ORACLE).renameTableSql("\"OLD\"", "\"NEW\""));
+        assertEquals("EXEC sp_rename N'\"dbo\".\"old\"', N'\"dbo\".\"new\"'",
+                registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"dbo\".\"old\"", "\"dbo\".\"new\""));
+    }
+
+    @Test
+    public void mapsStringDecimalAndBinaryBoundaries() {
+        DialectRegistry registry = new DialectRegistry();
+        FieldSchema shortText = new FieldSchema("v", LogicalType.STRING, true, 255, null, null);
+        FieldSchema longText = new FieldSchema("v", LogicalType.STRING, true, 256, null, null);
+        FieldSchema decimal = new FieldSchema("v", LogicalType.DECIMAL, true, null, 12, 2);
+        FieldSchema binary = new FieldSchema("v", LogicalType.BINARY, true, 8000, null, null);
+        assertEquals("VARCHAR(255)", registry.get(DatabaseType.MYSQL).mapping(LogicalType.STRING).getDdlType(shortText));
+        assertEquals("TEXT", registry.get(DatabaseType.MYSQL).mapping(LogicalType.STRING).getDdlType(longText));
+        assertEquals("VARCHAR(256)", registry.get(DatabaseType.POSTGRESQL).mapping(LogicalType.STRING).getDdlType(longText));
+        assertEquals("NVARCHAR(256)", registry.get(DatabaseType.SQL_SERVER).mapping(LogicalType.STRING).getDdlType(longText));
+        assertEquals("VARCHAR2(256)", registry.get(DatabaseType.ORACLE).mapping(LogicalType.STRING).getDdlType(longText));
+        assertEquals("VARBINARY(8000)", registry.get(DatabaseType.SQL_SERVER).mapping(LogicalType.BINARY).getDdlType(binary));
+        assertEquals("DECIMAL(12,2)", registry.get(DatabaseType.MYSQL).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+        assertEquals("NUMERIC(12,2)", registry.get(DatabaseType.POSTGRESQL).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+        assertEquals("NUMBER(12,2)", registry.get(DatabaseType.ORACLE).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+    }
+
+    @Test
+    public void bindsViewNamespaceAsParameters() {
+        DialectRegistry registry = new DialectRegistry();
+        io.github.nameof.schemaloom.driver.DatabaseConnectionInfo mysql =
+                new io.github.nameof.schemaloom.driver.DatabaseConnectionInfo(DatabaseType.MYSQL, "host", 3306, "shop", "user", "password");
+        ViewDefinitionQuery mySqlQuery = registry.get(DatabaseType.MYSQL).viewDefinitionQuery(mysql,
+                new QualifiedTableName(null, null, "orders_view"));
+        assertEquals(Arrays.<Object>asList("shop", "orders_view"), mySqlQuery.getParameters());
+        assertTrue(mySqlQuery.getSql().contains("TABLE_SCHEMA = ?"));
+
+        io.github.nameof.schemaloom.driver.DatabaseConnectionInfo postgresql =
+                new io.github.nameof.schemaloom.driver.DatabaseConnectionInfo(DatabaseType.POSTGRESQL, "host", 5432, "db", "user", "password");
+        assertEquals(Collections.<Object>singletonList("public.orders_view"), registry.get(DatabaseType.POSTGRESQL)
+                .viewDefinitionQuery(postgresql, new QualifiedTableName(null, null, "orders_view")).getParameters());
+
+        io.github.nameof.schemaloom.driver.DatabaseConnectionInfo oracle =
+                new io.github.nameof.schemaloom.driver.DatabaseConnectionInfo(DatabaseType.ORACLE, "host", 1521,
+                        "db", null, "APP", "APP", "password", null, null);
+        assertEquals(Arrays.<Object>asList("APP", "ORDERS_VIEW"), registry.get(DatabaseType.ORACLE)
+                .viewDefinitionQuery(oracle, new QualifiedTableName(null, null, "orders_view")).getParameters());
+        assertEquals(Collections.<Object>singletonList("dbo.orders_view"), registry.get(DatabaseType.SQL_SERVER)
+                .viewDefinitionQuery(oracle, new QualifiedTableName(null, "dbo", "orders_view")).getParameters());
+    }
+
+    @Test
+    public void escapesCommentsAndKeepsIndexColumnOrder() {
+        ColumnInfo column = new ColumnInfo("name", "VARCHAR", "owner's name", LogicalType.STRING,
+                Types.VARCHAR, 1, true, 30, null, null);
+        TableInfo table = new TableInfo(new QualifiedTableName(null, "public", "people"), false, "TABLE",
+                Collections.singletonList(column), null, Collections.<IndexInfo>emptyList(),
+                Collections.<ForeignKeyInfo>emptyList(), Collections.<ConstraintInfo>emptyList(), "owner's table");
+        DatabaseDialect postgres = new DialectRegistry().get(DatabaseType.POSTGRESQL);
+        assertEquals("COMMENT ON TABLE \"people\" IS 'owner''s table'", postgres.commentSql("\"people\"", table).get(0));
+        assertEquals("COMMENT ON COLUMN \"people\".\"name\" IS 'owner''s name'", postgres.commentSql("\"people\"", table).get(1));
+        IndexInfo index = new IndexInfo("ix_name", true, Arrays.asList("last", "first"));
+        assertEquals("CREATE UNIQUE INDEX \"ix_name\" ON \"people\" (\"last\", \"first\")",
+                postgres.indexSql("\"people\"", Collections.singletonList(index)).get(0));
+        assertEquals(1, new DialectRegistry().get(DatabaseType.MYSQL).commentSql("`people`", table).size());
+    }
 }

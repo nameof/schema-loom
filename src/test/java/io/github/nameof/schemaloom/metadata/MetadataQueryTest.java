@@ -38,4 +38,17 @@ public class MetadataQueryTest {
         MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
         assertEquals("db", query.getCatalog());
         assertEquals("public", query.getSchema());
-    }}
+    }
+
+    @Test
+    public void oracleUsesExplicitUserAsSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.ORACLE, "localhost", 1521,
+                "FREEPDB1", null, "SCHEMALOOM", "user", "password", null, null);
+
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "ORD_%");
+
+        assertNull(query.getCatalog());
+        assertEquals("SCHEMALOOM", query.getSchema());
+        assertEquals("ORD_%", query.getTablePattern());
+    }
+}

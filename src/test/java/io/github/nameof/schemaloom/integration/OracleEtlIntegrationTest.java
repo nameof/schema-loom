@@ -41,6 +41,10 @@ public class OracleEtlIntegrationTest {
             st.close();
             TableInfo info = new DatabaseMetadataService().getTable(setup, config.table("SCHEMALOOM_SOURCE"));
             assertEquals(3, info.getColumns().size());
+            assertNull(info.getName().getCatalog());
+            assertEquals("SCHEMALOOM", info.getName().getSchema());
+            assertEquals(Integer.valueOf(12), info.getColumns().get(2).getPrecision());
+            assertEquals(Integer.valueOf(2), info.getColumns().get(2).getScale());
             assertNotNull(info.getPrimaryKey());
             assertEquals(LogicalType.DECIMAL, info.getColumns().get(0).getLogicalType());
             assertEquals(Types.NUMERIC, info.getColumns().get(0).getJdbcType());
@@ -64,6 +68,7 @@ public class OracleEtlIntegrationTest {
             ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT COUNT(*) FROM SCHEMALOOM_TARGET");
             assertTrue(rs.next());
             assertEquals(2, rs.getInt(1));
+            assertTrue(new DatabaseMetadataService().listTables(verify, new MetadataQuery(null, "SCHEMALOOM", "SCHEMALOOM_TARGET_TMP")).isEmpty());
             rs.close();
         } finally { verify.close(); loader.close(); }
     }

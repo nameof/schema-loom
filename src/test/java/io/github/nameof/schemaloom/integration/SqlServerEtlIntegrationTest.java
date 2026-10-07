@@ -37,6 +37,11 @@ public class SqlServerEtlIntegrationTest {
             st.close();
             TableInfo info = new DatabaseMetadataService().getTable(setup, config.table("schemaloom_source"));
             assertEquals(3, info.getColumns().size());
+            assertEquals("master", info.getName().getCatalog());
+            assertEquals("dbo", info.getName().getSchema());
+            assertEquals(LogicalType.DECIMAL, info.getColumns().get(2).getLogicalType());
+            assertEquals(Integer.valueOf(12), info.getColumns().get(2).getPrecision());
+            assertEquals(Integer.valueOf(2), info.getColumns().get(2).getScale());
             assertNotNull(info.getPrimaryKey());
             assertTrue(new DatabaseMetadataService().getSchemaStatistics(setup, new SchemaInfo(null, "dbo")).getTotalTables() > 0);
             assertNotNull(new DatabaseMetadataService().getTableStatistics(setup, config.table("schemaloom_source")));
@@ -53,6 +58,7 @@ public class SqlServerEtlIntegrationTest {
             ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT COUNT(*) FROM dbo.schemaloom_target");
             assertTrue(rs.next());
             assertEquals(2, rs.getInt(1));
+            assertTrue(new DatabaseMetadataService().listTables(verify, new MetadataQuery("master", "dbo", "schemaloom_target_tmp")).isEmpty());
             rs.close();
         } finally { verify.close(); loader.close(); }
     }
