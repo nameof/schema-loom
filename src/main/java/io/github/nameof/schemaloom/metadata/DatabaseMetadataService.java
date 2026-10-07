@@ -22,6 +22,8 @@ import java.util.regex.Pattern;
 /** SchemaCrawler 到 SchemaLoom 元数据 DTO 的稳定映射门面。 */
 public final class DatabaseMetadataService {
     private static final Logger log = LoggerFactory.getLogger(DatabaseMetadataService.class);
+    private static final Object SCHEMA_CRAWLER_COMPATIBILITY_LOCK = new Object();
+    private static final String WITHOUT_DATABASE_PLUGIN_PROPERTY = "SC_WITHOUT_DATABASE_PLUGIN";
     public DatabaseInfo getDatabaseInfo(ConnectionProvider provider) {
         Catalog catalog = catalog(provider, null, false);
         return new DatabaseInfo(catalog.getDatabaseInfo().getDatabaseProductName(), catalog.getDatabaseInfo().getDatabaseProductVersion(),
@@ -111,12 +113,29 @@ public final class DatabaseMetadataService {
                         .withSchemaInfoLevel(SchemaInfoLevelBuilder.builder().withoutTables().toOptions())
                         .toOptions());
             }
-            return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
+            return loadCatalogWithCompatibility(provider, options);
         } catch (Exception e) {
             throw new SchemaLoomException("cannot read database metadata with SchemaCrawler", e);
         }
     }
 
+    /** SchemaCrawler 对 PostgreSQL 会要求额外 connector；通用 JDBC 模式无需上层配置。 */
+    private Catalog loadCatalogWithCompatibility(ConnectionProvider provider,
+                                                   schemacrawler.schemacrawler.SchemaCrawlerOptions options) throws Exception {
+        String product = provider.getConnection().getMetaData().getDatabaseProductName();
+        if (product == null || !product.toLowerCase(Locale.ENGLISH).contains("postgresql"))
+            return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
+        synchronized (SCHEMA_CRAWLER_COMPATIBILITY_LOCK) {
+            String previous = System.getProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY);
+            try {
+                System.setProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY, "postgresql");
+                return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
+            } finally {
+                if (previous == null) System.clearProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY);
+                else System.setProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY, previous);
+            }
+        }
+    }
     private Pattern namespacePattern(String catalog, String schema) {
         if (catalog == null && schema == null) return null;
         String name = schema == null ? catalog : schema;
