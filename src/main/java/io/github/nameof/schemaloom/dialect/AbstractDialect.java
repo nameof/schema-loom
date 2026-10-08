@@ -88,14 +88,20 @@ abstract class AbstractDialect implements DatabaseDialect {
             DatabaseTypeMapping mapping = mapping(f.getLogicalType());
             if (mapping == null || !mapping.isSupported())
                 throw new IllegalArgumentException("database does not support " + f.getLogicalType());
-            b.append(quote(f.getName())).append(' ').append(mapping.getDdlType(f));
             if (metadata != null) {
                 ColumnInfo column = metadata.get(f.getName().toLowerCase(Locale.ENGLISH));
-                if (column != null) {
-                    if (column.isGenerated()) b.append(' ').append(generatedColumn(column));
-                    else if (column.isAutoIncremented()) b.append(' ').append(identityColumn(column));
-                    else if (column.getDefaultValue() != null) b.append(" DEFAULT ").append(defaultValue(column));
+                b.append(quote(f.getName())).append(' ');
+                if (column != null && column.isGenerated() && !generatedColumnIncludesType()) b.append(generatedColumn(column));
+                else {
+                    b.append(mapping.getDdlType(f));
+                    if (column != null) {
+                        if (column.isGenerated()) b.append(' ').append(generatedColumn(column));
+                        else if (column.isAutoIncremented()) b.append(' ').append(identityColumn(column));
+                        else if (column.getDefaultValue() != null) b.append(" DEFAULT ").append(defaultValue(column));
+                    }
                 }
+            } else {
+                b.append(quote(f.getName())).append(' ').append(mapping.getDdlType(f));
             }
             if (!f.isNullable() && (metadata == null || metadata.get(f.getName().toLowerCase(Locale.ENGLISH)) == null
                     || !metadata.get(f.getName().toLowerCase(Locale.ENGLISH)).isGenerated())) b.append(" NOT NULL");
@@ -125,6 +131,9 @@ abstract class AbstractDialect implements DatabaseDialect {
         if (!(value.startsWith("(") && value.endsWith(")"))) value = "(" + value + ")";
         return "GENERATED ALWAYS AS " + value;
     }
+
+    /** 某些方言在计算列表达式前不允许声明列类型。 */
+    protected boolean generatedColumnIncludesType() { return true; }
 
     /** 转换跨数据库可确认安全的默认值表达式；未知表达式必须显式失败。 */
     protected String defaultValue(ColumnInfo column) {
@@ -184,4 +193,10 @@ abstract class AbstractDialect implements DatabaseDialect {
         }
         return b.append(')').toString();
     }
+
+    @Override
+    public String identityInsertOnSql(String table) { return null; }
+
+    @Override
+    public String identityInsertOffSql(String table) { return null; }
 }
