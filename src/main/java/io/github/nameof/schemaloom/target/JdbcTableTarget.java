@@ -33,6 +33,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private final JdbcExecutionAdapter execution;
     private final List<EtlError> preparationErrors = new ArrayList<EtlError>();
     private RecordSchema schema;
+    private RecordSchema writeSchema;
     private TableInfo tableInfo;
     private boolean prepared;
     private boolean replaceMode;
@@ -78,6 +79,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         targetWriteFailed = false;
         temporaryCreated = false;
         tableInfo = descriptor.getTableInfo();
+        writeSchema = writableSchema(schema, tableInfo);
         log.info("JDBC目标准备开始 runId={} table={} mode={}", LoggingSupport.currentRunId(), table.getTable(), mode);
         validateCapabilities(schema);
         try {
@@ -87,7 +89,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             boolean exists = existingTable != null;
             if (exists && existingTable.isView())
                 throw new SchemaLoomException("JDBC table target cannot write to a view: " + table.getTable());
-            // Determine write table name
+            // 确定实际写入的表名（替换模式使用临时表）
             writeTable = replaceMode ? temporaryTable() : table;
             String q = dialect.quote(writeTable);
             if (replaceMode) {
@@ -95,7 +97,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 temporaryCreated = true;
                 exists = false;
             }
-            // Create or validate table
+            // 表不存在则创建（含注释和索引），已存在则校验结构兼容性
             if (!exists) {
                 execution.execute("create target table", tableInfo == null
                         ? dialect.createTableSql(q, schema) : dialect.createTableSql(q, tableInfo));
@@ -132,6 +134,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private void migrateIndexes(String q, TableInfo source, TableInfo target) {
         for (IndexInfo expected : source.getIndexes()) {
             if (expected.getName() == null || expected.getName().trim().isEmpty() || expected.getColumns().isEmpty()) continue;
+            if (isPrimaryKeyIndex(expected, source.getPrimaryKey())) continue;
             IndexInfo equivalent = null;
             IndexInfo sameName = null;
             for (IndexInfo actual : target.getIndexes()) {
@@ -151,6 +154,12 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return dialect.indexSql(tableName, Collections.singletonList(index));
     }
 
+    private boolean isPrimaryKeyIndex(IndexInfo index, PrimaryKeyInfo primaryKey) {
+        if (primaryKey == null || !index.isUnique() || index.getColumns().size() != primaryKey.getColumns().size()) return false;
+        for (int i = 0; i < index.getColumns().size(); i++)
+            if (!index.getColumns().get(i).equalsIgnoreCase(primaryKey.getColumns().get(i))) return false;
+        return true;
+    }
     private boolean sameDefinition(IndexInfo a, IndexInfo b) {
         if (a.isUnique() != b.isUnique() || a.getColumns().size() != b.getColumns().size()) return false;
         for (int i = 0; i < a.getColumns().size(); i++)
@@ -191,16 +200,25 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             throw new SchemaLoomException("target is not prepared");
         try {
             final RecordBatch batch = b;
-            execution.batchUpdate("write target batch", dialect.insertSql(dialect.quote(writeTable), schema),
-                    new JdbcExecutionAdapter.BatchSetter() {
+            String identityOn = identityInsertSql(true);
+            String identityOff = identityInsertSql(false);
+            if (identityOn != null)
+                execution.execute("enable identity insert", identityOn); // 启用自增列显式插入
+            try {
+                execution.batchUpdate("write target batch", dialect.insertSql(dialect.quote(writeTable), writeSchema),
+                        new JdbcExecutionAdapter.BatchSetter() {
                         public void setValues(PreparedStatement statement, int row) throws SQLException {
                             DataRecord record = batch.getRecords().get(row);
-                            for (int column = 0; column < schema.getFields().size(); column++)
-                                setValue(statement, column + 1, schema.getFields().get(column), record.get(column));
+                            for (int column = 0; column < writeSchema.getFields().size(); column++)
+                                setValue(statement, column + 1, writeSchema.getFields().get(column),
+                                        record.get(schema.indexOf(writeSchema.getFields().get(column).getName())));
                         }
 
                         public int getBatchSize() { return batch.size(); }
-                    });
+                        });
+            } finally {
+                if (identityOff != null) execution.execute("disable identity insert", identityOff);
+            }
             incrementWrittenRows(b.size());
             log.debug("JDBC目标批次写入完成 runId={} table={} rows={}",
                     LoggingSupport.currentRunId(), writeTable.getTable(), b.size());
@@ -211,6 +229,41 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                     LoggingSupport.currentRunId(), writeTable.getTable(), b.size(), LoggingSupport.message(e));
             throw e;
         }
+    }
+
+    /**
+     * 当写入字段包含自增列时，返回启用/禁用 identity insert 的 SQL；否则返回 null
+     */
+    private String identityInsertSql(boolean on) {
+        if (tableInfo == null) return null;
+        for (ColumnInfo column : tableInfo.getColumns()) {
+            if (!column.isAutoIncremented()) continue;
+            for (FieldSchema field : writeSchema.getFields())
+                if (field.getName().equalsIgnoreCase(column.getName()))
+                    return on ? dialect.identityInsertOnSql(dialect.quote(writeTable))
+                            : dialect.identityInsertOffSql(dialect.quote(writeTable));
+        }
+        return null;
+    }
+
+    /**
+     * 过滤掉目标表中的生成列（computed/generated column），返回实际可写入的 schema
+     */
+    private RecordSchema writableSchema(RecordSchema source, TableInfo metadata) {
+        if (metadata == null) return source;
+        List<FieldSchema> writable = new ArrayList<>();
+        for (FieldSchema field : source.getFields()) {
+            boolean generated = false;
+            for (ColumnInfo column : metadata.getColumns()) {
+                if (column.getName().equalsIgnoreCase(field.getName())) {
+                    generated = column.isGenerated();
+                    break;
+                }
+            }
+            if (!generated) writable.add(field);
+        }
+        if (writable.isEmpty()) throw new SchemaLoomException("target has no writable columns");
+        return new RecordSchema(writable);
     }
 
     private void setValue(PreparedStatement ps, int index, FieldSchema field, Object value) throws SQLException {
@@ -227,7 +280,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
 
     public void close() {
         try {
-            // Replace mode: drop temporary table and rename target table to final name.
+            // 替换模式：写入失败时直接删除临时表，成功则将目标表替换为临时表
             if (replaceMode && temporaryCreated) {
                 try {
                     if (targetWriteFailed || !prepared) {
