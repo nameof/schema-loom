@@ -51,4 +51,8 @@ public interface DatabaseDialect {
      * 根据指定 Schema 生成参数化 INSERT SQL。
      */
     String insertSql(String table, RecordSchema schema);
+
+    /** 返回显式写入 identity 列所需的数据库专用开关语句；不需要时返回 null。 */
+    default String identityInsertOnSql(String table) { return null; }
+    default String identityInsertOffSql(String table) { return null; }
 }

@@ -15,15 +15,22 @@ import schemacrawler.tools.utility.SchemaCrawlerUtility;
 import us.fatehi.utility.datasource.DatabaseConnectionSource;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.regex.Pattern;
 
-/** SchemaCrawler 到 SchemaLoom 元数据 DTO 的稳定映射门面。 */
+/**
+ * 数据库元数据读取服务，封装 SchemaCrawler 并提供统一的元数据访问 API。
+ * 支持读取数据库、Schema、表、列、索引等元数据，以及表和 Schema 的统计信息。
+ */
 public final class DatabaseMetadataService {
     private static final Logger log = LoggerFactory.getLogger(DatabaseMetadataService.class);
     private static final Object SCHEMA_CRAWLER_COMPATIBILITY_LOCK = new Object();
     private static final String WITHOUT_DATABASE_PLUGIN_PROPERTY = "SC_WITHOUT_DATABASE_PLUGIN";
+
     public DatabaseInfo getDatabaseInfo(ConnectionProvider provider) {
         Catalog catalog = catalog(provider, null, false);
         return new DatabaseInfo(catalog.getDatabaseInfo().getDatabaseProductName(), catalog.getDatabaseInfo().getDatabaseProductVersion(),
@@ -45,7 +52,7 @@ public final class DatabaseMetadataService {
         return listSchemas(provider, null);
     }
 
-    /** 按 catalog、schema 范围读取 schema，避免由调用方在全量结果上二次过滤。 */
+    /** 按 catalog、schema 范围过滤读取 schema，避免调用方在全量结果上二次过滤。 */
     public List<SchemaInfo> listSchemas(ConnectionProvider provider, MetadataQuery query) {
         List<SchemaInfo> out = new ArrayList<SchemaInfo>();
         for (Schema schema : catalog(provider, query, false).getSchemas()) {
@@ -56,18 +63,21 @@ public final class DatabaseMetadataService {
         return out;
     }
 
+    /** 按 catalog、schema、表名模式匹配读取表元数据，包含列、索引、外键、约束等完整信息。 */
     public List<TableInfo> listTables(ConnectionProvider provider, MetadataQuery query) {
         Pattern pattern = Pattern.compile(query.getTablePattern().replace("%", ".*").replace("_", "."), Pattern.CASE_INSENSITIVE);
         List<TableInfo> out = new ArrayList<TableInfo>();
         for (Table table : catalog(provider, query, true).getTables()) {
             Schema schema = table.getSchema();
             if (!matches(query.getCatalog(), schema.getCatalogName()) || !matches(query.getSchema(), schema.getName()) || !pattern.matcher(table.getName()).matches()) continue;
-            out.add(map(table));
+            TableInfo mapped = map(table);
+            out.add(enrichGeneratedColumns(provider, mapped));
         }
         log.debug("数据库表元数据读取完成 runId={} count={}", LoggingSupport.currentRunId(), out.size());
         return out;
     }
 
+    /** 读取指定表的完整元数据，表不存在时抛出异常。 */
     public TableInfo getTable(ConnectionProvider provider, QualifiedTableName name) {
         for (TableInfo table : listTables(provider, new MetadataQuery(name.getCatalog(), name.getSchema(), name.getTable())))
             if (table.getName().getTable().equalsIgnoreCase(name.getTable())) return table;
@@ -210,6 +220,65 @@ public final class DatabaseMetadataService {
                 primaryKey, indexes(table), foreignKeys(table), constraints(table), table.getRemarks());
     }
 
+    /**
+     * 补充生成列表达式：SchemaCrawler 对 MySQL/PostgreSQL/SQL Server 不总是暴露生成列定义，
+     * 通过直接查询系统表补齐，确保迁移时能正确识别和重建生成列。
+     */
+    private TableInfo enrichGeneratedColumns(ConnectionProvider provider, TableInfo table) {
+        try {
+            String product = provider.getConnection().getMetaData().getDatabaseProductName();
+            if (product == null) return table;
+            boolean mysql = product.toLowerCase(Locale.ENGLISH).contains("mysql");
+            boolean postgres = product.toLowerCase(Locale.ENGLISH).contains("postgresql");
+            boolean sqlServer = product.toLowerCase(Locale.ENGLISH).contains("sql server");
+            if (!mysql && !postgres && !sqlServer) return table;
+            Map<String, String> expressions = new HashMap<String, String>();
+            String sql = mysql
+                    ? "SELECT COLUMN_NAME, GENERATION_EXPRESSION FROM INFORMATION_SCHEMA.COLUMNS "
+                    + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND EXTRA LIKE '%GENERATED%'"
+                    : "SELECT a.attname, pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attribute a "
+                    + "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid "
+                    + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                    + "LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum "
+                    + "WHERE n.nspname = ? AND c.relname = ? AND a.attgenerated <> ''";
+            if (sqlServer) {
+                sql = "SELECT col.name, cc.definition FROM sys.computed_columns cc "
+                        + "JOIN sys.columns col ON col.object_id = cc.object_id AND col.column_id = cc.column_id "
+                        + "JOIN sys.tables t ON t.object_id = cc.object_id "
+                        + "JOIN sys.schemas s ON s.schema_id = t.schema_id "
+                        + "WHERE s.name = ? AND t.name = ?";
+            }
+            PreparedStatement statement = provider.getConnection().prepareStatement(sql);
+            try {
+                statement.setString(1, postgres || sqlServer ? table.getName().getSchema() : table.getName().getCatalog());
+                statement.setString(2, table.getName().getTable());
+                ResultSet result = statement.executeQuery();
+                try {
+                    while (result.next()) expressions.put(result.getString(1).toLowerCase(Locale.ENGLISH), result.getString(2));
+                } finally {
+                    result.close();
+                }
+            } finally {
+                statement.close();
+            }
+            if (expressions.isEmpty()) return table;
+            List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
+            for (ColumnInfo column : table.getColumns()) {
+                String expression = expressions.get(column.getName().toLowerCase(Locale.ENGLISH));
+                if (expression == null) {
+                    columns.add(column);
+                } else {
+                    columns.add(new ColumnInfo(column.getFieldSchema(), column.getTypeName(), column.getRemarks(),
+                            column.getOrdinal(), column.getJdbcType(), column.getDefaultValue(), expression,
+                            column.isAutoIncremented(), true));
+                }
+            }
+            return new TableInfo(table.getName(), table.isView(), table.getType(), columns, table.getPrimaryKey(),
+                    table.getIndexes(), table.getForeignKeys(), table.getConstraints(), table.getRemarks());
+        } catch (SQLException e) {
+            throw new SchemaLoomException("cannot read generated column metadata", e);
+        }
+    }
     private QualifiedTableName name(Table table) {
         Schema schema = table.getSchema();
         return new QualifiedTableName(schema.getCatalogName(), schema.getName(), table.getName());
