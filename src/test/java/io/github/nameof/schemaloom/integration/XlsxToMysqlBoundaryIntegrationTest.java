@@ -12,6 +12,7 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.Assume;
 import org.junit.Test;
 
+import java.util.Properties;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,14 +25,17 @@ import java.util.Collections;
 import static org.junit.Assert.*;
 
 /**
- * 此测试用于验证LogicalType 未对实际数据做归一化处理之前，在异构source target写入时，LogicalType 相同，但接受的数据对象类型不兼容，会导致写入失败
- * 测试给出一个excel时间字段， 但读到的是字符串的数字，直接写入mysql时间字段会产生错误。 所以需要source target对不同LogicalType编解码处理
+ * 此测试用于验证 XLSX 时间值经过类型归一化后可写入 MySQL 时间列
  */
 public class XlsxToMysqlBoundaryIntegrationTest {
     @Test
-    public void writesXlsxTimestampToMysqlAndExposesUnnormalizedValue() throws Exception {
+    public void writesNormalizedXlsxTimestampToMysql() throws Exception {
         String password = System.getenv("SCHEMALOOM_IT_MYSQL_PASSWORD");
         Assume.assumeTrue("set SCHEMALOOM_IT_MYSQL_PASSWORD to run this test", password != null);
+
+        Properties connectionProperties = new Properties();
+        connectionProperties.setProperty("allowPublicKeyRetrieval", "true");
+        connectionProperties.setProperty("useSSL", "false");
 
         DatabaseConnectionInfo config = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL,
@@ -41,7 +45,7 @@ public class XlsxToMysqlBoundaryIntegrationTest {
                 valueOrDefault("SCHEMALOOM_IT_MYSQL_USER", "root"),
                 password,
                 valueOrDefault("SCHEMALOOM_IT_MYSQL_DRIVER_ID", "mysql8"),
-                null);
+                connectionProperties);
         Path xlsx = Files.createTempFile("schemaloom-xlsx-mysql-", ".xlsx");
         String table = "schemaloom_xlsx_timestamp_target";
         JdbcDriverLoader loader = new JdbcDriverLoader();
@@ -73,11 +77,11 @@ public class XlsxToMysqlBoundaryIntegrationTest {
                     .build()
                     .run();
 
-            assertEquals(EtlStatus.PARTIAL, result.getStatus());
+            assertEquals(EtlStatus.SUCCESS, result.getStatus());
             assertEquals(1, result.getRead());
-            assertEquals(1, result.getFailed());
-            assertEquals(0, result.getWritten());
-            assertEquals("write", result.getErrors().get(0).getStage());
+            assertEquals(0, result.getFailed());
+            assertEquals(1, result.getWritten());
+            assertTrue(result.getErrors().isEmpty());
 
             ConnectionProvider reader = loader.connect(config);
             try {

@@ -380,7 +380,7 @@ ConnectionProvider provider =
 
 `JdbcDriverLoader` 无参构造优先读取应用工作目录下的 `drivers`，即 `${user.dir}/drivers`；未找到时才回退到 classpath 下的 `drivers` 资源目录，对应源码目录 `src/main/resources/drivers`。生产发布时将 `drivers` 与 `application.jar` 放在同一目录。每个 `.properties` 文件描述一个驱动，`classpath` 只能引用该目录内的 JAR：
 
-仓库跟踪 `mysql8.properties`、`oracle23.properties`、`sqlserver2022.properties` 和 `postgresql16.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
+仓库跟踪 `mysql8.properties`、`oracle23.properties`、`sqlserver2022.properties` 和 `postgresql16.properties`、`mariadb114.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
 
 目录结构：
 
@@ -531,7 +531,28 @@ mvn -Pintegration "-Dtest=JdbcEtlIntegrationTest" test
 .\scripts\stop-mysql-integration.ps1
 ```
 
-Oracle Free 26ai，测试密码仅支持字母、数字、下划线和感叹号且至少 8 位：
+MariaDB 11.4（独立的 `DatabaseType.MARIADB`，使用官方 Connector/J 3.5.10）：
+
+将 `mariadb-java-client-3.5.10.jar` 放入仓库 `drivers` 目录，与 `mariadb114.properties` 同目录；不提交驱动 JAR。默认端口为 3306，URL 为 `jdbc:mariadb://host:port/database`。内置描述的服务端版本范围为 `[11.4,11.5)`；其他版本需提供对应描述并自行验证。
+
+```powershell
+$env:SCHEMALOOM_IT_MARIADB_PASSWORD = "<本地一次性测试密码>"
+.\scripts\start-mariadb-integration.ps1
+$env:SCHEMALOOM_IT_MARIADB_HOST = "localhost"
+$env:SCHEMALOOM_IT_MARIADB_PORT = "13307"
+$env:SCHEMALOOM_IT_MARIADB_DATABASE = "schemaloom_it"
+$env:SCHEMALOOM_IT_MARIADB_USER = "schemaloom"
+$env:SCHEMALOOM_IT_MARIADB_DRIVER_ID = "mariadb114"
+try {
+    mvn -Pintegration "-Dtest=MariaDbIntegrationTest" test
+} finally {
+    .\scripts\stop-mariadb-integration.ps1
+}
+```
+
+容器绑定 `127.0.0.1:13307`，镜像为 `docker.io/library/mariadb:11.4`；该标签会随补丁更新，复现结果时应同时记录实际服务端版本与镜像摘要。脚本通过环境变量传递密码，不输出凭据。测试验证官方驱动、catalog 范围、主键/索引/注释/自增和生成列元数据、统计、REPLACE/APPEND、默认值、DECIMAL 和视图迁移；测试结束清理专用表和视图。MariaDB 使用独立方言，当前迁移表注释，字段注释仅采集、不迁移。本次通过 DaoCloud 代理取得 MariaDB 11.4.13 镜像，使用官方 Connector/J 3.5.10 完成本地 Podman 真实集成验证，全部断言通过；已覆盖主键 PRIMARY 索引不会重复创建的场景。未设置主机变量时跳过测试，设置主机后缺少其他必填配置会失败。
+
+Oracle Free 26ai，测试密码至少 8 位，建议仅使用字母、数字和下划线（初始化脚本会将密码嵌入 SQL）；测试用户需有 `CREATE SEQUENCE` 权限以创建 identity 列：
 
 ```powershell
 $env:SCHEMALOOM_IT_ORACLE_PASSWORD = "<本地一次性测试密码>"
@@ -573,9 +594,9 @@ mvn -Pintegration "-Dtest=PostgreSqlIntegrationTest" test
 .\scripts\stop-postgresql-integration.ps1
 ```
 
-Oracle 和 SQL Server 的容器测试验证已存在目标表的 `APPEND`、表元数据及统计；MySQL 和 PostgreSQL 的测试验证 `REPLACE`、表元数据、统计及视图迁移。Oracle 的 `SC_WITHOUT_DATABASE_PLUGIN` 使当前 SchemaCrawler 使用通用 JDBC 模式，以便采集 Free 26ai 普通用户的表。Oracle 视图定义迁移仍受当前 SchemaCrawler/Oracle LONG 定义读取限制，未列为通过项。不要把真实凭据提交到仓库。
+Oracle 和 SQL Server 的容器测试验证已存在目标表的 `APPEND`、表元数据及统计；MySQL 和 PostgreSQL 的测试验证 `REPLACE`、表元数据、统计及视图迁移。Oracle 的 `SC_WITHOUT_DATABASE_PLUGIN` 使当前 SchemaCrawler 使用通用 JDBC 模式，以便采集 Free 26ai 普通用户的表。Oracle 视图定义迁移仍受当前 SchemaCrawler/Oracle LONG 定义读取限制，未列为通过项。SQL Server 视图定义读取会提取纯 SELECT 定义后再创建目标视图。不要把真实凭据提交到仓库。
 
-当前集成测试还覆盖方言边界：标识符引用与保留字、catalog/schema 命名空间过滤、REPLACE 临时表切换、自增/identity、生成列、DECIMAL/字符串/二进制类型边界、默认值、索引和注释 SQL，以及视图定义查询参数。DialectTest 和 MetadataQueryTest 在无数据库环境下验证 SQL 生成与命名空间回退；四库集成测试在真实驱动可用时验证实际 DDL、元数据和数据值往返。
+当前真实容器测试验证四库的连接、表迁移和命名空间元数据；MySQL、PostgreSQL 额外验证 `REPLACE`、DECIMAL 值、自增/生成列及索引或注释，SQL Server、Oracle 验证 identity 与计算/虚拟列元数据，XLSX→MySQL 验证时间值写入。`DialectTest` 和 `MetadataQueryTest` 补充 SQL 生成及命名空间规则。二进制、时区类型及四库完整类型值往返尚未纳入真实测试。
 ## 性能测试
 
 ```powershell

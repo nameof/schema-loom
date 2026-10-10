@@ -95,4 +95,61 @@ public class JdbcEtlIntegrationTest {
         loader.close();
     }
 
-}
+    @Test
+    public void migratesIdentityGeneratedDefaultsAndIndexes() throws Exception {
+        String host = System.getenv("SCHEMALOOM_IT_MYSQL_HOST");
+        String database = System.getenv("SCHEMALOOM_IT_MYSQL_DATABASE");
+        String user = System.getenv("SCHEMALOOM_IT_MYSQL_USER");
+        String password = System.getenv("SCHEMALOOM_IT_MYSQL_PASSWORD");
+        Assume.assumeTrue("set MySQL connection variables to run integration test", host != null && database != null && user != null && password != null);
+        int port = Integer.parseInt(valueOrDefault("SCHEMALOOM_IT_MYSQL_PORT", "3306"));
+        Properties connectionProperties = new Properties();
+        connectionProperties.setProperty("allowPublicKeyRetrieval", "true");
+        connectionProperties.setProperty("useSSL", "false");
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.MYSQL, host, port, database, user, password,
+                System.getenv("SCHEMALOOM_IT_MYSQL_DRIVER_ID"), connectionProperties);
+        JdbcDriverLoader loader = new JdbcDriverLoader();
+        ConnectionProvider setup = loader.connect(config);
+        try {
+            Statement st = setup.getConnection().createStatement();
+            st.execute("DROP TABLE IF EXISTS schemaloom_boundary_target");
+            st.execute("DROP TABLE IF EXISTS schemaloom_boundary");
+            st.execute("CREATE TABLE schemaloom_boundary (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(40) NOT NULL DEFAULT 'fallback', amount DECIMAL(10,2) DEFAULT 0.00, derived DECIMAL(10,2) GENERATED ALWAYS AS (amount + 1) STORED) COMMENT='boundary table'");
+            st.execute("CREATE UNIQUE INDEX schemaloom_boundary_name_uq ON schemaloom_boundary(name)");
+            st.execute("INSERT INTO schemaloom_boundary (name, amount) VALUES ('alpha', 12.34)");
+            st.close();
+            TableInfo info = new DatabaseMetadataService().getTable(setup, config.table("schemaloom_boundary"));
+            assertTrue(info.getColumns().get(0).isAutoIncremented());
+            assertTrue(info.getColumns().get(3).isGenerated());
+            assertEquals("boundary table", info.getRemarks());
+            assertTrue(info.getIndexes().stream().anyMatch(index -> index.isUnique() && "schemaloom_boundary_name_uq".equalsIgnoreCase(index.getName())));
+            st = setup.getConnection().createStatement();
+            st.execute("CREATE TABLE schemaloom_boundary_target (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(40) NOT NULL DEFAULT 'fallback', amount DECIMAL(10,2) DEFAULT 0.00, derived DECIMAL(10,2) GENERATED ALWAYS AS (amount + 1) STORED)");
+            st.execute("CREATE UNIQUE INDEX schemaloom_boundary_name_uq ON schemaloom_boundary_target(name)");
+            st.close();
+        } finally {
+            setup.close();
+        }
+        EtlResult result = EtlTask.builder()
+                .source(new JdbcTableSource(config, "schemaloom_boundary", loader, 2))
+                .target(new JdbcTableTarget(config, "schemaloom_boundary_target", loader, MetadataErrorPolicy.FAIL))
+                .targetMode(TargetMode.APPEND).build().run();
+        assertEquals(result.getErrors().isEmpty() ? "" : result.getErrors().get(0).getStage() + ": " + result.getErrors().get(0).getMessage() + " type=" + result.getErrors().get(0).getType(), EtlStatus.SUCCESS, result.getStatus());
+        ConnectionProvider verify = loader.connect(config);
+        try {
+            ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT id, name, amount, derived FROM schemaloom_boundary_target");
+            assertTrue(rs.next());
+            assertEquals("alpha", rs.getString("name"));
+            assertEquals(new java.math.BigDecimal("12.34"), rs.getBigDecimal("amount"));
+            assertEquals(new java.math.BigDecimal("13.34"), rs.getBigDecimal("derived"));
+            rs.close();
+        } finally {
+            verify.close();
+            loader.close();
+        }
+    }
+
+    private static String valueOrDefault(String name, String fallback) {
+        String value = System.getenv(name);
+        return value == null || value.trim().isEmpty() ? fallback : value;
+    }}

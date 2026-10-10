@@ -1,7 +1,10 @@
 package io.github.nameof.schemaloom.engine;
 
 import io.github.nameof.schemaloom.api.*;
-import io.github.nameof.schemaloom.driver.*;
+import io.github.nameof.schemaloom.driver.ConnectionProvider;
+import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
+import io.github.nameof.schemaloom.driver.DatabaseType;
+import io.github.nameof.schemaloom.driver.JdbcConnectionFactory;
 import io.github.nameof.schemaloom.metadata.DatabaseMetadataService;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.TableInfo;

@@ -16,12 +16,53 @@ import static org.junit.Assert.*;
 
 public class SqlServerEtlIntegrationTest {
     @Test
+    public void readsIdentityAndComputedColumnFromRealDatabase() throws Exception {
+        String password = System.getenv("SCHEMALOOM_IT_SQLSERVER_PASSWORD");
+        Assume.assumeTrue("set SQL Server password to run integration test", password != null);
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.SQL_SERVER,
+                value("SCHEMALOOM_IT_SQLSERVER_HOST", "localhost"), intValue("SCHEMALOOM_IT_SQLSERVER_PORT", 11433),
+                value("SCHEMALOOM_IT_SQLSERVER_DATABASE", "master"), null, "dbo", "sa", password,
+                value("SCHEMALOOM_IT_SQLSERVER_DRIVER_ID", "sqlserver2022"), null);
+        JdbcDriverLoader loader = new JdbcDriverLoader();
+        ConnectionProvider provider = loader.connect(config);
+        try {
+            Statement statement = provider.getConnection().createStatement();
+            try {
+                statement.execute("IF OBJECT_ID('dbo.schemaloom_boundary_target', 'U') IS NOT NULL DROP TABLE dbo.schemaloom_boundary_target");
+                statement.execute("IF OBJECT_ID('dbo.schemaloom_boundary', 'U') IS NOT NULL DROP TABLE dbo.schemaloom_boundary");
+                statement.execute("CREATE TABLE dbo.schemaloom_boundary (id INT IDENTITY(1,1) PRIMARY KEY, amount DECIMAL(10,2) NOT NULL, derived AS (amount + 1))");
+                statement.execute("INSERT INTO dbo.schemaloom_boundary (amount) VALUES (12.34)");
+            } finally {
+                statement.close();
+            }
+            TableInfo table = new DatabaseMetadataService().getTable(provider, config.table("schemaloom_boundary"));
+            assertTrue(table.getColumns().get(0).isAutoIncremented());
+            assertTrue(table.getColumns().get(2).isGenerated());
+            assertNotNull(table.getColumns().get(2).getGeneratedExpression());
+            EtlResult migration = EtlTask.builder()
+                    .source(new JdbcTableSource(config, "schemaloom_boundary", loader, 2))
+                    .target(new JdbcTableTarget(config, "schemaloom_boundary_target", loader, MetadataErrorPolicy.FAIL))
+                    .targetMode(TargetMode.REPLACE).build().run();
+            assertEquals(migration.getErrors().isEmpty() ? "" : migration.getErrors().get(0).getMessage(),
+                    EtlStatus.SUCCESS, migration.getStatus());
+            ResultSet copied = provider.getConnection().createStatement()
+                    .executeQuery("SELECT id, amount, derived FROM dbo.schemaloom_boundary_target");
+            assertTrue(copied.next());
+            assertEquals(new java.math.BigDecimal("12.34"), copied.getBigDecimal("amount"));
+            assertEquals(new java.math.BigDecimal("13.34"), copied.getBigDecimal("derived"));
+            copied.close();
+        } finally {
+            provider.close();
+            loader.close();
+        }
+    }
+    @Test
     public void migratesTableAndReadsMetadata() throws Exception {
         String password = System.getenv("SCHEMALOOM_IT_SQLSERVER_PASSWORD");
         Assume.assumeTrue("set SCHEMALOOM_IT_SQLSERVER_PASSWORD to run SQL Server integration test", password != null);
         DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.SQL_SERVER,
                 value("SCHEMALOOM_IT_SQLSERVER_HOST", "localhost"), intValue("SCHEMALOOM_IT_SQLSERVER_PORT", 11433),
-                value("SCHEMALOOM_IT_SQLSERVER_DATABASE", "master"), "sa", password,
+                value("SCHEMALOOM_IT_SQLSERVER_DATABASE", "master"), null, "dbo", "sa", password,
                 value("SCHEMALOOM_IT_SQLSERVER_DRIVER_ID", "sqlserver2022"), null);
         JdbcDriverLoader loader = new JdbcDriverLoader();
         ConnectionProvider setup = loader.connect(config);
@@ -49,16 +90,19 @@ public class SqlServerEtlIntegrationTest {
 
         EtlResult result = EtlTask.builder().source(new JdbcTableSource(config, "schemaloom_source", loader, 2))
                 .target(new JdbcTableTarget(config, "schemaloom_target", loader)).targetMode(TargetMode.APPEND).build().run();
-        assertEquals(EtlStatus.SUCCESS, result.getStatus());
+        assertEquals(String.valueOf(result.getErrors()), EtlStatus.SUCCESS, result.getStatus());
         assertEquals(2, result.getWritten());
         EtlResult view = new JdbcViewMigrationTask(config, config, "schemaloom_source_view", "schemaloom_target_view", loader).run();
-        assertEquals(EtlStatus.SUCCESS, view.getStatus());
+        assertEquals(view.getErrors().isEmpty() ? "" : view.getErrors().get(0).getMessage(), EtlStatus.SUCCESS, view.getStatus());
         ConnectionProvider verify = loader.connect(config);
         try {
             ResultSet rs = verify.getConnection().createStatement().executeQuery("SELECT COUNT(*) FROM dbo.schemaloom_target");
             assertTrue(rs.next());
             assertEquals(2, rs.getInt(1));
-            assertTrue(new DatabaseMetadataService().listTables(verify, new MetadataQuery("master", "dbo", "schemaloom_target_tmp")).isEmpty());
+            ResultSet temp = verify.getConnection().createStatement().executeQuery("SELECT COUNT(*) FROM sys.objects WHERE name = 'schemaloom_target_tmp' AND schema_id = SCHEMA_ID('dbo')");
+            assertTrue(temp.next());
+            assertEquals(0, temp.getInt(1));
+            temp.close();
             rs.close();
         } finally { verify.close(); loader.close(); }
     }
