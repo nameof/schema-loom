@@ -33,8 +33,27 @@ final class SqlServerDialect extends AbstractDialect {
 
     @Override
     public String renameTableSql(String table, String newTable) {
-        return "EXEC sp_rename N'" + StrUtil.replace(table, "'", "''") + "', N'"
-                + StrUtil.replace(newTable, "'", "''") + "'";
+        String source = normalizeRenameSource(table);
+        String target = normalizeRenameTarget(newTable);
+        return "EXEC sp_rename N'" + StrUtil.replace(source, "'", "''") + "', N'"
+                + StrUtil.replace(target, "'", "''") + "'";
+    }
+
+    private String normalizeRenameSource(String table) {
+        String value = unquoteQualifiedName(table);
+        int firstDot = value.indexOf('.');
+        if (firstDot >= 0 && value.indexOf('.', firstDot + 1) >= 0) value = value.substring(firstDot + 1);
+        return value;
+    }
+
+    private String normalizeRenameTarget(String table) {
+        String value = unquoteQualifiedName(table);
+        int lastDot = value.lastIndexOf('.');
+        return lastDot < 0 ? value : value.substring(lastDot + 1);
+    }
+
+    private String unquoteQualifiedName(String value) {
+        return StrUtil.replace(StrUtil.replace(value, "\".\"", "."), "\"", "");
     }
 
     @Override
@@ -59,9 +78,18 @@ final class SqlServerDialect extends AbstractDialect {
     }
 
     @Override
+    protected boolean generatedColumnIncludesType() { return false; }
+
+    @Override
+    public String identityInsertOnSql(String table) { return "SET IDENTITY_INSERT " + table + " ON"; }
+
+    @Override
+    public String identityInsertOffSql(String table) { return "SET IDENTITY_INSERT " + table + " OFF"; }
+
+    @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
         String name = view.getSchema() == null ? view.getTable() : view.getSchema() + "." + view.getTable();
-        return new ViewDefinitionQuery("SELECT OBJECT_DEFINITION(OBJECT_ID(?))", Collections.<Object>singletonList(name));
+        return new ViewDefinitionQuery("SELECT SUBSTRING(definition, CHARINDEX(' AS ', definition) + 4, LEN(definition)) FROM (SELECT OBJECT_DEFINITION(OBJECT_ID(?)) AS definition) AS view_definition", Collections.<Object>singletonList(name));
     }
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
