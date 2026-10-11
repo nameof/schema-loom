@@ -10,6 +10,7 @@ final class JdbcUrlBuilder {
     static int defaultPort(DatabaseType type) {
         switch (type) {
             case MYSQL: return 3306;
+            case MARIADB: return 3306;
             case ORACLE: return 1521;
             case SQL_SERVER: return 1433;
             case POSTGRESQL: return 5432;
@@ -27,6 +28,7 @@ final class JdbcUrlBuilder {
     private static String defaultTemplate(DatabaseType type) {
         switch (type) {
             case MYSQL: return "jdbc:mysql://${host}:${port}/${database}";
+            case MARIADB: return "jdbc:mariadb://${host}:${port}/${database}";
             case ORACLE: return "jdbc:oracle:thin:@//${host}:${port}/${database}";
             case SQL_SERVER: return "jdbc:sqlserver://${host}:${port};databaseName=${database}";
             case POSTGRESQL: return "jdbc:postgresql://${host}:${port}/${database}";

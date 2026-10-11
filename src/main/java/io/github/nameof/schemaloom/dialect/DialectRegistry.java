@@ -9,6 +9,7 @@ public final class DialectRegistry {
 
     public DialectRegistry() {
         map.put(DatabaseType.MYSQL, new MySqlDialect());
+        map.put(DatabaseType.MARIADB, new MariaDbDialect());
         map.put(DatabaseType.ORACLE, new OracleDialect());
         map.put(DatabaseType.SQL_SERVER, new SqlServerDialect());
         map.put(DatabaseType.POSTGRESQL, new PostgreSqlDialect());

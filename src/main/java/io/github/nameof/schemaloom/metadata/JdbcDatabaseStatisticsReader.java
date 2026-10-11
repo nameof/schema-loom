@@ -32,7 +32,7 @@ final class JdbcDatabaseStatisticsReader {
     }
 
     TableStatistics table(QualifiedTableName name) {
-        if (StrUtil.containsIgnoreCase(product, "mysql")) return mysqlTable(name);
+        if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb")) return mysqlTable(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleTable(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerTable(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlTable(name);
@@ -40,7 +40,7 @@ final class JdbcDatabaseStatisticsReader {
     }
 
     SchemaStatistics schema(SchemaInfo name) {
-        if (StrUtil.containsIgnoreCase(product, "mysql")) return mysqlSchema(name);
+        if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb")) return mysqlSchema(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleSchema(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerSchema(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlSchema(name);

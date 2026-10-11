@@ -221,14 +221,14 @@ public final class DatabaseMetadataService {
     }
 
     /**
-     * 补充生成列表达式：SchemaCrawler 对 MySQL/PostgreSQL/SQL Server 不总是暴露生成列定义，
+     * 补充生成列表达式：SchemaCrawler 对 MySQL/MariaDB/PostgreSQL/SQL Server 不总是暴露生成列定义，
      * 通过直接查询系统表补齐，确保迁移时能正确识别和重建生成列。
      */
     private TableInfo enrichGeneratedColumns(ConnectionProvider provider, TableInfo table) {
         try {
             String product = provider.getConnection().getMetaData().getDatabaseProductName();
             if (product == null) return table;
-            boolean mysql = product.toLowerCase(Locale.ENGLISH).contains("mysql");
+            boolean mysql = cn.hutool.core.util.StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb");
             boolean postgres = product.toLowerCase(Locale.ENGLISH).contains("postgresql");
             boolean sqlServer = product.toLowerCase(Locale.ENGLISH).contains("sql server");
             if (!mysql && !postgres && !sqlServer) return table;

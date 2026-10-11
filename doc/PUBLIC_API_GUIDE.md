@@ -19,7 +19,7 @@
 </dependency>
 ```
 
-使用 JDBC 时，还需要提供对应数据库驱动。项目当前支持 `MYSQL`、`ORACLE`、`SQL_SERVER`、`POSTGRESQL`，驱动可通过 `JdbcDriverLoader` 从受控的 `drivers` 目录加载。
+使用 JDBC 时，还需要提供对应数据库驱动。项目当前支持 `MYSQL`、`MARIADB`、`ORACLE`、`SQL_SERVER`、`POSTGRESQL`，驱动可通过 `JdbcDriverLoader` 从受控的 `drivers` 目录加载。
 
 ### 1.2 创建数据库连接配置
 
@@ -279,3 +279,18 @@ List<DataRecord> sample = tableSource.preview(50); // 允许 1 到 300 行
 4. 异常策略：分别验证三种 `ErrorPolicy` 及 `PARTIAL`/`FAILED` 状态。
 5. 资源释放：验证正常结束、异常结束和取消后连接均已释放。
 6. 安全：连接参数从环境变量或密钥管理系统注入，不在日志输出密码。
+
+### MariaDB 接入
+
+MariaDB 使用独立的 `DatabaseType.MARIADB` 和 MariaDB 官方驱动 `org.mariadb.jdbc.Driver`。连接默认端口 3306，URL 前缀 `jdbc:mariadb:`。内置 `mariadb114` 描述使用 Connector/J 3.5.10，服务端版本范围为 `[11.4,11.5)`；将对应 JAR 放入受控的 `drivers` 目录。
+
+数据库名作为 catalog，schema 为 null。支持表/列/主键/索引/生成列/自增列元数据、表和数据库统计、表 ETL 与同类型视图迁移；当前迁移表注释，字段注释仅采集、不迁移。统计行数由引擎提供，可能是估算值。
+
+```java
+DatabaseConnectionInfo mariaDb = new DatabaseConnectionInfo(
+    DatabaseType.MARIADB, "localhost", 3306, "database_name",
+    System.getenv("MARIADB_USER"), System.getenv("MARIADB_PASSWORD"),
+    "mariadb114", null);
+```
+
+本地 Podman 真实集成测试运行方式见 README 中的 MariaDB 11.4 小节。

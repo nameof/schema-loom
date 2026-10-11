@@ -20,10 +20,12 @@ public class BundledDriverDescriptorTest {
         copyDescriptor(fixtures, "oracle23.properties", "ojdbc8-23.26.3.0.0.jar");
         copyDescriptor(fixtures, "sqlserver2022.properties", "mssql-jdbc-13.6.0.jre8.jar");
         copyDescriptor(fixtures, "postgresql16.properties", "postgresql-42.2.2.jar");
+        copyDescriptor(fixtures, "mariadb114.properties", "mariadb-java-client-3.5.10.jar");
         List<DriverDescriptor> descriptors = new DriverDescriptorLoader().load(fixtures);
         Map<String, DriverDescriptor> byId = new HashMap<String, DriverDescriptor>();
         for (DriverDescriptor descriptor : descriptors) byId.put(descriptor.getId(), descriptor);
 
+        assertDescriptor(byId.get("mariadb114"), DatabaseType.MARIADB, "org.mariadb.jdbc.Driver", "mariadb-java-client-3.5.10.jar", "jdbc:mariadb:");
         assertDescriptor(byId.get("mysql8"), DatabaseType.MYSQL, "com.mysql.cj.jdbc.Driver", "mysql-connector-java-8.0.28.jar", "jdbc:mysql:");
         assertDescriptor(byId.get("oracle23"), DatabaseType.ORACLE, "oracle.jdbc.OracleDriver", "ojdbc8-23.26.3.0.0.jar", "jdbc:oracle:");
         assertDescriptor(byId.get("sqlserver2022"), DatabaseType.SQL_SERVER, "com.microsoft.sqlserver.jdbc.SQLServerDriver", "mssql-jdbc-13.6.0.jre8.jar", "jdbc:sqlserver:");
