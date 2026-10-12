@@ -138,7 +138,10 @@ public final class JdbcDriverLoader implements AutoCloseable {
         if (e == null) {
             URL[] us = new URL[d.getClasspath().size()];
             for (int i = 0; i < us.length; i++) {
-                us[i] = d.getClasspath().get(i).toUri().toURL();
+                java.nio.file.Path jarPath = d.getClasspath().get(i);
+                if (!java.nio.file.Files.isRegularFile(jarPath))
+                    throw new SchemaLoomException("driver JAR not found: " + jarPath.getFileName() + " (descriptor: " + d.getId() + ")");
+                us[i] = jarPath.toUri().toURL();
             }
             DriverClassLoader cl = new DriverClassLoader(us, getClass().getClassLoader(), d.getDriverPackages());
             Driver driver = (Driver) Class.forName(d.getDriverClass(), true, cl).newInstance();

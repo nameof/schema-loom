@@ -66,8 +66,9 @@ public final class DriverDescriptorLoader {
                     List<Path> cp = new ArrayList<Path>();
                     for (String s : split(x.getStr("classpath"))) {
                         Path q = root.resolve(s).normalize();
-                        // 规范化后仍必须位于 root 下，避免描述文件通过 .. 引用目录外的任意文件。
-                        if (!q.startsWith(root.normalize()) || !Files.isRegularFile(q))
+                        // 规范化后必须位于 root 下，避免描述文件通过 .. 引用目录外的任意文件。
+                        // JAR 存在性延迟到实际连接时验证，使描述文件可以先于驱动 JAR 提交。
+                        if (!q.startsWith(root.normalize()))
                             throw new SchemaLoomException("invalid driver classpath: " + s);
                         cp.add(q);
                     }

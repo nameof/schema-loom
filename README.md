@@ -48,7 +48,7 @@ JDBC Source 与 Target 在内部通过 Spring JDBC 执行适配层统一管理�
 | CSV | `CsvSource` | `CsvTarget` | UTF-8、标题行、分隔符和 Schema 推断 |
 | XLSX | `XlsxSource` | `XlsxTarget` | 指定 Sheet、流式读取和多 Sheet 写入 |
 
-数据库方言当前覆盖 MySQL、Oracle、SQL Server 和 PostgreSQL。PostgreSQL 未显式指定 Schema 时默认使用 `public`。数据库目标支持 `APPEND` 与 `REPLACE`，目标表不存在时会依据输入 Schema 建表。
+数据库方言当前覆盖 MySQL、Oracle、SQL Server、PostgreSQL 和 DB2。PostgreSQL 未显式指定 Schema 时默认使用 `public`。DB2 未显式指定 Schema 时回退到数据库名。数据库目标支持 `APPEND` 与 `REPLACE`，目标表不存在时会依据输入 Schema 建表。
 
 ### 类型化 Schema 与转换
 
@@ -380,7 +380,7 @@ ConnectionProvider provider =
 
 `JdbcDriverLoader` 无参构造优先读取应用工作目录下的 `drivers`，即 `${user.dir}/drivers`；未找到时才回退到 classpath 下的 `drivers` 资源目录，对应源码目录 `src/main/resources/drivers`。生产发布时将 `drivers` 与 `application.jar` 放在同一目录。每个 `.properties` 文件描述一个驱动，`classpath` 只能引用该目录内的 JAR：
 
-仓库跟踪 `mysql8.properties`、`oracle23.properties`、`sqlserver2022.properties` 和 `postgresql16.properties`、`mariadb114.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
+仓库跟踪 `mysql8.properties`、`oracle23.properties`、`sqlserver2022.properties`、`postgresql16.properties`、`mariadb114.properties` 和 `db2.properties` 驱动描述；数据库厂商 JAR 由部署环境提供，并且运行时必须与描述文件位于同一 `drivers` 目录。连接所需的账号、密码和数据库服务名由运行环境提供。
 
 目录结构：
 
@@ -594,6 +594,24 @@ mvn -Pintegration "-Dtest=PostgreSqlIntegrationTest" test
 .\scripts\stop-postgresql-integration.ps1
 ```
 
+DB2（IBM Db2 Community 容器，默认数据库 `BLUDB`，默认端口 `50000`）：
+
+将 DB2 JDBC 驱动 JAR（如 `db2-jcc.jar`）放入仓库 `drivers` 目录，与 `db2.properties` 同目录；不提交驱动 JAR。默认端口为 50000，URL 为 `jdbc:db2://host:port/database`。内置描述的服务端版本范围为 `[11.0,12.0)`。
+
+```powershell
+$env:SCHEMALOOM_IT_DB2_PASSWORD = "<本地一次性测试密码>"
+.\scripts\start-db2-integration.ps1
+$env:SCHEMALOOM_IT_DB2_HOST = "localhost"
+$env:SCHEMALOOM_IT_DB2_PORT = "15000"
+$env:SCHEMALOOM_IT_DB2_DATABASE = "BLUDB"
+$env:SCHEMALOOM_IT_DB2_USER = "db2inst1"
+$env:SCHEMALOOM_IT_DB2_DRIVER_ID = "db2"
+mvn -Pintegration "-Dtest=Db2IntegrationTest" test
+.\scripts\stop-db2-integration.ps1
+```
+
+容器绑定 `127.0.0.1:15000`，镜像为 `icr.io/db2_community/db2:latest`；首次启动需要较长时间初始化（约 2-5 分钟）。DB2 容器需要 rootful Podman 或 Docker 环境（rootless 模式不支持 DB2 引擎启动），脚本已配置 `--privileged`、`--security-opt label=disable` 和 `--shm-size=2g`。脚本通过环境变量传递密码，不输出凭据。测试验证连接、表/Schema 元数据、identity 和生成列、DECIMAL/时间值、统计、APPEND/REPLACE、视图迁移及临时表清理。未设置主机变量时跳过测试。DB2 不支持 `TIME WITH TIME ZONE` 和 `TIMESTAMP WITH TIME ZONE`，时区类型降级为 `TIME` 和 `TIMESTAMP`。
+
 Oracle 和 SQL Server 的容器测试验证已存在目标表的 `APPEND`、表元数据及统计；MySQL 和 PostgreSQL 的测试验证 `REPLACE`、表元数据、统计及视图迁移。Oracle 的 `SC_WITHOUT_DATABASE_PLUGIN` 使当前 SchemaCrawler 使用通用 JDBC 模式，以便采集 Free 26ai 普通用户的表。Oracle 视图定义迁移仍受当前 SchemaCrawler/Oracle LONG 定义读取限制，未列为通过项。SQL Server 视图定义读取会提取纯 SELECT 定义后再创建目标视图。不要把真实凭据提交到仓库。
 
 当前真实容器测试验证四库的连接、表迁移和命名空间元数据；MySQL、PostgreSQL 额外验证 `REPLACE`、DECIMAL 值、自增/生成列及索引或注释，SQL Server、Oracle 验证 identity 与计算/虚拟列元数据，XLSX→MySQL 验证时间值写入。`DialectTest` 和 `MetadataQueryTest` 补充 SQL 生成及命名空间规则。二进制、时区类型及四库完整类型值往返尚未纳入真实测试。
@@ -642,6 +660,7 @@ mvn -Pperformance test
 | MySQL | 数据库名 | 通常为空 | `shop.orders` |
 | Oracle | 通常为空 | 用户/模式 | `APP.ORDERS` |
 | SQL Server | 数据库名 | 如 `dbo` | `shop.dbo.orders` |
+| DB2 | 通常为空 | 用户/模式（未指定时回退到数据库名） | `BLUDB.MYSCHEMA.ORDERS` |
 
 
 ## 核心功能&BUG TODO

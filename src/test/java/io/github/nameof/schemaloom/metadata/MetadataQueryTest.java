@@ -51,4 +51,28 @@ public class MetadataQueryTest {
         assertEquals("SCHEMALOOM", query.getSchema());
         assertEquals("ORD_%", query.getTablePattern());
     }
+
+    @Test
+    public void db2DefaultsSchemaToDatabase() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.DB2, "localhost", 50000,
+                "BLUDB", "user", "password");
+
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
+
+        assertNull(query.getCatalog());
+        assertEquals("BLUDB", query.getSchema());
+        assertEquals("%", query.getTablePattern());
+    }
+
+    @Test
+    public void db2UsesExplicitSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.DB2, "localhost", 50000,
+                "BLUDB", null, "MYSCHEMA", "user", "password", null, null);
+
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "SL_%");
+
+        assertNull(query.getCatalog());
+        assertEquals("MYSCHEMA", query.getSchema());
+        assertEquals("SL_%", query.getTablePattern());
+    }
 }

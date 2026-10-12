@@ -76,7 +76,7 @@ public class DriverDescriptorLoaderTest {
 
     @Test(expected = RuntimeException.class) public void rejectsClasspathOutsideRoot() throws Exception {
         Path root = Files.createTempDirectory("schemaloom-drivers");
-        Files.write(root.resolve("bad.properties"), Arrays.asList("id=x", "databaseType=MYSQL", "driverClass=x.Driver", "classpath=..\\outside.jar"), StandardCharsets.UTF_8);
+        Files.write(root.resolve("bad.properties"), Arrays.asList("id=x", "databaseType=MYSQL", "driverClass=x.Driver", "classpath=../outside.jar"), StandardCharsets.UTF_8);
         new DriverDescriptorLoader().load(root);
     }
 }

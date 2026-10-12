@@ -129,16 +129,19 @@ public final class DatabaseMetadataService {
         }
     }
 
-    /** SchemaCrawler 对 PostgreSQL 会要求额外 connector；通用 JDBC 模式无需上层配置。 */
+    /** SchemaCrawler 对 PostgreSQL/DB2 会要求额外 connector；通用 JDBC 模式无需上层配置。 */
     private Catalog loadCatalogWithCompatibility(ConnectionProvider provider,
                                                    schemacrawler.schemacrawler.SchemaCrawlerOptions options) throws Exception {
         String product = provider.getConnection().getMetaData().getDatabaseProductName();
-        if (product == null || !product.toLowerCase(Locale.ENGLISH).contains("postgresql"))
+        String productLower = product == null ? "" : product.toLowerCase(Locale.ENGLISH);
+        boolean needsPluginWorkaround = productLower.contains("postgresql") || productLower.contains("db2");
+        if (!needsPluginWorkaround)
             return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
+        String pluginName = productLower.contains("db2") ? "db2" : "postgresql";
         synchronized (SCHEMA_CRAWLER_COMPATIBILITY_LOCK) {
             String previous = System.getProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY);
             try {
-                System.setProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY, "postgresql");
+                System.setProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY, pluginName);
                 return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
             } finally {
                 if (previous == null) System.clearProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY);
@@ -231,7 +234,8 @@ public final class DatabaseMetadataService {
             boolean mysql = cn.hutool.core.util.StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb");
             boolean postgres = product.toLowerCase(Locale.ENGLISH).contains("postgresql");
             boolean sqlServer = product.toLowerCase(Locale.ENGLISH).contains("sql server");
-            if (!mysql && !postgres && !sqlServer) return table;
+            boolean db2 = product.toLowerCase(Locale.ENGLISH).contains("db2");
+            if (!mysql && !postgres && !sqlServer && !db2) return table;
             Map<String, String> expressions = new HashMap<String, String>();
             String sql = mysql
                     ? "SELECT COLUMN_NAME, GENERATION_EXPRESSION FROM INFORMATION_SCHEMA.COLUMNS "
@@ -248,9 +252,17 @@ public final class DatabaseMetadataService {
                         + "JOIN sys.schemas s ON s.schema_id = t.schema_id "
                         + "WHERE s.name = ? AND t.name = ?";
             }
+            if (db2) {
+                sql = "SELECT COLNAME, TEXT FROM SYSCAT.COLUMNS "
+                        + "WHERE TABSCHEMA = ? AND TABNAME = ? AND GENERATION = 'A'";
+            }
             PreparedStatement statement = provider.getConnection().prepareStatement(sql);
             try {
-                statement.setString(1, postgres || sqlServer ? table.getName().getSchema() : table.getName().getCatalog());
+                String namespaceParam;
+                if (postgres || sqlServer) namespaceParam = table.getName().getSchema();
+                else if (db2) namespaceParam = table.getName().getSchema() != null ? table.getName().getSchema() : table.getName().getCatalog();
+                else namespaceParam = table.getName().getCatalog();
+                statement.setString(1, namespaceParam);
                 statement.setString(2, table.getName().getTable());
                 ResultSet result = statement.executeQuery();
                 try {
