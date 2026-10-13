@@ -25,11 +25,9 @@ public final class MetadataQuery {
         if (connectionInfo.getDatabaseType() == DatabaseType.POSTGRESQL)
             return new MetadataQuery(connectionInfo.getDatabase(), connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);
         if (connectionInfo.getDatabaseType() == DatabaseType.DB2) {
-            String catalog = connectionInfo.getCatalog();
-            String schema = connectionInfo.getSchema();
-            // DB2 的默认 schema 是用户名，但此处无法获取用户名，因此当未显式配置时保留 null，
-            // 由 JDBC 驱动使用连接的默认 schema。
-            return new MetadataQuery(catalog, schema, tablePattern);
+            // DB2 的默认 schema 由连接会话决定（可能是用户名或其他），显式设置可能指向不存在的 schema，
+            // 因此未配置时传 null，让 SchemaCrawler 和驱动自动发现合适的 schema
+            return new MetadataQuery(connectionInfo.getCatalog(), connectionInfo.getSchema(), tablePattern);
         }
         String catalog = connectionInfo.getCatalog();
         String schema = connectionInfo.getSchema();

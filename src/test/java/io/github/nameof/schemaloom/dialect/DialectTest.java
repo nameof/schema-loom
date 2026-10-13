@@ -66,7 +66,7 @@ public class DialectTest {
                 registry.get(DatabaseType.MYSQL).renameTableSql("`old`", "`new`"));
         assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.ORACLE).renameTableSql("\"old\"", "\"new\""));
-        assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
+        assertEquals("RENAME TABLE \"old\" TO \"NEW\"",
                 registry.get(DatabaseType.DB2).renameTableSql("\"old\"", "\"new\""));
         assertEquals("EXEC sp_rename N'old', N'new'",
                 registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"old\"", "\"new\""));
@@ -156,11 +156,20 @@ public class DialectTest {
         for (DatabaseType type : DatabaseType.values()) {
             DatabaseDialect dialect = registry.get(type);
             String quote = (type == DatabaseType.MYSQL || type == DatabaseType.MARIADB) ? "`" : "\"";
-            assertEquals(quote + "select" + quote, dialect.quote("select"));
-            assertEquals(quote + "cat" + quote + "." + quote + "app" + quote + "." + quote + "order" + quote,
-                    dialect.quote(new QualifiedTableName("cat", "app", "order")));
-            assertEquals(quote + "a" + quote + quote + "b" + quote, dialect.quote("a" + quote + "b"));
-            assertEquals("DROP TABLE " + quote + "order" + quote, dialect.dropTableSql(dialect.quote("order")));
+            // DB2 将标识符转为大写再加引号
+            String expectedSelect = (type == DatabaseType.DB2) ? (quote + "SELECT" + quote) : (quote + "select" + quote);
+            assertEquals(expectedSelect, dialect.quote("select"));
+            // DB2 的 qualified name 也会大写
+            String expectedQualified = (type == DatabaseType.DB2)
+                    ? (quote + "CAT" + quote + "." + quote + "APP" + quote + "." + quote + "ORDER" + quote)
+                    : (quote + "cat" + quote + "." + quote + "app" + quote + "." + quote + "order" + quote);
+            assertEquals(expectedQualified, dialect.quote(new QualifiedTableName("cat", "app", "order")));
+            // DB2 的转义引号也会大写
+            String expectedEscaped = (type == DatabaseType.DB2) ? (quote + "A" + quote + quote + "B" + quote) : (quote + "a" + quote + quote + "b" + quote);
+            assertEquals(expectedEscaped, dialect.quote("a" + quote + "b"));
+            // DB2 的 DROP TABLE 也会大写
+            String expectedDrop = (type == DatabaseType.DB2) ? ("DROP TABLE " + quote + "ORDER" + quote) : ("DROP TABLE " + quote + "order" + quote);
+            assertEquals(expectedDrop, dialect.dropTableSql(dialect.quote("order")));
         }
     }
 
@@ -169,7 +178,7 @@ public class DialectTest {
         DialectRegistry registry = new DialectRegistry();
         assertEquals("ALTER TABLE \"public\".\"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.POSTGRESQL).renameTableSql("\"public\".\"old\"", "\"public\".\"new\""));
-        assertEquals("ALTER TABLE \"DB2SCHEMA\".\"old\" RENAME TO \"new\"",
+        assertEquals("RENAME TABLE \"DB2SCHEMA\".\"old\" TO \"NEW\"",
                 registry.get(DatabaseType.DB2).renameTableSql("\"DB2SCHEMA\".\"old\"", "\"DB2SCHEMA\".\"new\""));
         assertEquals("ALTER TABLE \"OLD\" RENAME TO \"NEW\"",
                 registry.get(DatabaseType.ORACLE).renameTableSql("\"OLD\"", "\"NEW\""));

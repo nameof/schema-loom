@@ -85,7 +85,8 @@ public class Db2IntegrationTest {
                 assertTrue(target.getColumns().get(0).isAutoIncremented());
                 assertTrue(target.getColumns().get(3).isGenerated());
                 assertEquals("表注释", target.getRemarks());
-                assertTrue(target.getIndexes().stream().anyMatch(i -> i.isUnique() && "SL_DB2_NAME_UQ".equalsIgnoreCase(i.getName())));
+                // DB2 索引名在 schema 内必须唯一，因此目标表的索引名会包含表名前缀
+                assertTrue(target.getIndexes().stream().anyMatch(i -> i.isUnique() && i.getName().toUpperCase().contains("SL_DB2_NAME_UQ")));
                 assertTrue(service.listTables(setup, MetadataQuery.fromConnectionInfo(config, "sl_db2_target_tmp")).isEmpty());
 
                 jdbc.execute("DELETE FROM sl_db2_target");

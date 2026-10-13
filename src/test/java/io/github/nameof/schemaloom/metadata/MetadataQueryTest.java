@@ -53,14 +53,14 @@ public class MetadataQueryTest {
     }
 
     @Test
-    public void db2DefaultsSchemaToDatabase() {
+    public void db2DefaultsToNullSchema() {
         DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.DB2, "localhost", 50000,
                 "BLUDB", "user", "password");
 
         MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
 
         assertNull(query.getCatalog());
-        assertEquals("BLUDB", query.getSchema());
+        assertNull(query.getSchema());
         assertEquals("%", query.getTablePattern());
     }
 

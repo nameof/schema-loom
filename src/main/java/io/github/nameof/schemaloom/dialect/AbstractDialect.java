@@ -128,6 +128,8 @@ abstract class AbstractDialect implements DatabaseDialect {
         if (expression == null || expression.trim().isEmpty())
             throw new IllegalArgumentException("generated column expression is missing for field '" + column.getName() + "'");
         String value = expression.trim();
+        // DB2 等数据库返回的表达式可能包含前缀 "AS "，需要去除以避免生成重复的 "AS AS ..."
+        if (value.toUpperCase(Locale.ENGLISH).startsWith("AS ")) value = value.substring(3).trim();
         if (!(value.startsWith("(") && value.endsWith(")"))) value = "(" + value + ")";
         return "GENERATED ALWAYS AS " + value;
     }

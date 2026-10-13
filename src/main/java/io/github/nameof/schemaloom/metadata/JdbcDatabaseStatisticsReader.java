@@ -36,6 +36,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleTable(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerTable(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlTable(name);
+        if (StrUtil.containsIgnoreCase(product, "db2")) return db2Table(name);
         throw unsupported();
     }
 
@@ -44,6 +45,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleSchema(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerSchema(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlSchema(name);
+        if (StrUtil.containsIgnoreCase(product, "db2")) return db2Schema(name);
         throw unsupported();
     }
 
@@ -149,6 +151,31 @@ final class JdbcDatabaseStatisticsReader {
                 "WHERE n.nspname = ? AND c.relkind = 'r'", schema);
         return new SchemaStatistics(number(row, "total_tables"), number(row, "total_rows"), number(row, "total_data_length"));
     }
+    private TableStatistics db2Table(QualifiedTableName name) {
+        String schema = first(name.getSchema(), currentSchema());
+        Map<String, Object> row = one("SELECT CARD row_count, NPAGES data_pages FROM SYSCAT.TABLES "
+                + "WHERE TABSCHEMA = ? AND TABNAME = ? AND TYPE = 'T'", schema, name.getTable());
+        long rows = number(row, "row_count");
+        long dataPages = number(row, "data_pages");
+        // DB2 的 NPAGES 以表空间页大小为单位，此处使用默认 4K 页估算；精确值需关联 SYSCAT.TABLESPACES
+        long data = dataPages * 4096;
+        long indexLength = 0;
+        try {
+            Map<String, Object> idx = oneAggregate("SELECT COALESCE(SUM(NLEAF), 0) index_pages FROM SYSCAT.INDEXES "
+                    + "WHERE TABSCHEMA = ? AND TABNAME = ?", schema, name.getTable());
+            indexLength = number(idx, "index_pages") * 4096;
+        } catch (DataAccessException ignored) {}
+        return new TableStatistics(rows, data, indexLength, rows == 0 ? 0 : data / rows);
+    }
+
+    private SchemaStatistics db2Schema(SchemaInfo name) {
+        String schema = first(name.getName(), currentSchema());
+        Map<String, Object> row = oneAggregate("SELECT COUNT(*) total_tables, COALESCE(SUM(CARD), 0) total_rows, "
+                + "COALESCE(SUM(NPAGES), 0) * 4096 total_data_length FROM SYSCAT.TABLES "
+                + "WHERE TABSCHEMA = ? AND TYPE = 'T'", schema);
+        return new SchemaStatistics(number(row, "total_tables"), number(row, "total_rows"), number(row, "total_data_length"));
+    }
+
     private Map<String, Object> one(String sql, Object... args) {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, args);
         if (rows.isEmpty()) throw new SchemaLoomException("table not found");
