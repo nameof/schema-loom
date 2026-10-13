@@ -18,7 +18,7 @@ final class DriverClassLoader extends URLClassLoader {
                     Class<?> c = findLoadedClass(name);
                     if (c == null) try {
                         c = findClass(name);
-                    } catch (Throwable ignored) {
+                    } catch (ClassNotFoundException ignored) {
                     }
                     if (c != null) {
                         if (resolve) resolveClass(c);

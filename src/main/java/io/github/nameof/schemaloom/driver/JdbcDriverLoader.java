@@ -144,15 +144,25 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 us[i] = jarPath.toUri().toURL();
             }
             DriverClassLoader cl = new DriverClassLoader(us, getClass().getClassLoader(), d.getDriverPackages());
-            Driver driver = (Driver) Class.forName(d.getDriverClass(), true, cl).newInstance();
-            e = new Entry(cl, driver);
+            // 部分驱动（如 DB2 JCC）在初始化和连接期间使用 TCCL 加载内部类，
+            // 必须将 TCCL 临时切换为 DriverClassLoader，否则在隔离类加载环境下会触发 ClassNotFoundException。
+            ClassLoader originalTccl = Thread.currentThread().getContextClassLoader();
+            try {
+                Thread.currentThread().setContextClassLoader(cl);
+                Driver driver = (Driver) Class.forName(d.getDriverClass(), true, cl).newInstance();
+                e = new Entry(cl, driver);
+            } finally {
+                Thread.currentThread().setContextClassLoader(originalTccl);
+            }
             cache.put(d.getId(), e);
         }
         // 从描述文件默认值复制，再覆盖调用方参数，避免污染不可变的描述对象。
         Properties p = d.getDefaultProperties();
         if (supplied != null) p.putAll(supplied);
         Connection connection = null;
+        ClassLoader originalTccl = Thread.currentThread().getContextClassLoader();
         try {
+            Thread.currentThread().setContextClassLoader(e.loader);
             // Driver.connect 创建新的数据库会话，不会复用缓存中的 Connection。
             connection = e.driver.connect(url, p);
             if (connection == null) throw new SQLException("driver rejected URL");
@@ -175,6 +185,8 @@ public final class JdbcDriverLoader implements AutoCloseable {
                 }
             }
             throw failure;
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalTccl);
         }
     }
 
@@ -257,7 +269,12 @@ public final class JdbcDriverLoader implements AutoCloseable {
         private JdbcDriverLoader owner;
 
         Provider(Connection c, Entry e, JdbcDriverLoader o) {
-            this.c = c;
+            // 使用代理包装 Connection，确保每次 JDBC 方法调用时 TCCL 指向 DriverClassLoader。
+            // DB2 等驱动在元数据操作期间会通过 TCCL 加载内部类，若 TCCL 不匹配则触发 ClassNotFoundException。
+            this.c = (Connection) java.lang.reflect.Proxy.newProxyInstance(
+                    c.getClass().getClassLoader(),
+                    new Class<?>[]{Connection.class},
+                    new TcclInvocationHandler(c, e.loader));
             this.e = e;
             owner = o;
         }
@@ -276,12 +293,12 @@ public final class JdbcDriverLoader implements AutoCloseable {
             try {
                 c.close();
                 closed = true;
-            } catch (Exception e) {
-                closeFailure = e;
+            } catch (Exception ex) {
+                closeFailure = ex;
                 try {
                     closed = c.isClosed();
                 } catch (Exception stateError) {
-                    e.addSuppressed(stateError);
+                    ex.addSuppressed(stateError);
                 }
             }
             if (closed) {
@@ -295,6 +312,46 @@ public final class JdbcDriverLoader implements AutoCloseable {
             }
             if (closeFailure != null)
                 throw new SchemaLoomException("cannot close JDBC connection", closeFailure);
+        }
+    }
+
+    /**
+     * 在每次方法调用前将 TCCL 切换为驱动类加载器，调用后恢复。
+     * 若返回值是 JDBC 对象（Statement/ResultSet/DatabaseMetaData），递归代理以确保后续调用也管理 TCCL。
+     */
+    private static final class TcclInvocationHandler implements java.lang.reflect.InvocationHandler {
+        private final Object target;
+        private final ClassLoader driverLoader;
+
+        TcclInvocationHandler(Object target, ClassLoader driverLoader) {
+            this.target = target;
+            this.driverLoader = driverLoader;
+        }
+
+        public Object invoke(Object proxy, java.lang.reflect.Method method, Object[] args) throws Throwable {
+            ClassLoader original = Thread.currentThread().getContextClassLoader();
+            Thread.currentThread().setContextClassLoader(driverLoader);
+            try {
+                Object result = method.invoke(target, args);
+                return wrapIfNeeded(result);
+            } catch (java.lang.reflect.InvocationTargetException ex) {
+                throw ex.getCause();
+            } finally {
+                Thread.currentThread().setContextClassLoader(original);
+            }
+        }
+
+        private Object wrapIfNeeded(Object result) {
+            if (result == null || java.lang.reflect.Proxy.isProxyClass(result.getClass())) return result;
+            Class<?>[] interfaces;
+            if (result instanceof CallableStatement) interfaces = new Class<?>[]{CallableStatement.class};
+            else if (result instanceof PreparedStatement) interfaces = new Class<?>[]{PreparedStatement.class};
+            else if (result instanceof Statement) interfaces = new Class<?>[]{Statement.class};
+            else if (result instanceof ResultSet) interfaces = new Class<?>[]{ResultSet.class};
+            else if (result instanceof DatabaseMetaData) interfaces = new Class<?>[]{DatabaseMetaData.class};
+            else return result;
+            return java.lang.reflect.Proxy.newProxyInstance(
+                    result.getClass().getClassLoader(), interfaces, new TcclInvocationHandler(result, driverLoader));
         }
     }
 }
