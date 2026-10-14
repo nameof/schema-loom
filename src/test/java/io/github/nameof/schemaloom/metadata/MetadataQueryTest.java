@@ -75,4 +75,28 @@ public class MetadataQueryTest {
         assertEquals("MYSCHEMA", query.getSchema());
         assertEquals("SL_%", query.getTablePattern());
     }
+
+    @Test
+    public void dmDefaultsToDatabaseAsCatalog() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.DM, "localhost", 5236,
+                "DAMENG", "user", "password");
+
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
+
+        assertEquals("DAMENG", query.getCatalog());
+        assertNull(query.getSchema());
+        assertEquals("%", query.getTablePattern());
+    }
+
+    @Test
+    public void dmUsesExplicitSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.DM, "localhost", 5236,
+                "DAMENG", null, "SCHEMALOOM", "SYSDBA", "password", null, null);
+
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "SL_%");
+
+        assertNull(query.getCatalog());
+        assertEquals("SCHEMALOOM", query.getSchema());
+        assertEquals("SL_%", query.getTablePattern());
+    }
 }

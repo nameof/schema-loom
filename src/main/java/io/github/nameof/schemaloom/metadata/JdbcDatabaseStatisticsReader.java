@@ -37,6 +37,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerTable(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlTable(name);
         if (StrUtil.containsIgnoreCase(product, "db2")) return db2Table(name);
+        if (StrUtil.containsIgnoreCase(product, "dm")) return dmTable(name);
         throw unsupported();
     }
 
@@ -46,6 +47,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerSchema(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlSchema(name);
         if (StrUtil.containsIgnoreCase(product, "db2")) return db2Schema(name);
+        if (StrUtil.containsIgnoreCase(product, "dm")) return dmSchema(name);
         throw unsupported();
     }
 
@@ -174,6 +176,41 @@ final class JdbcDatabaseStatisticsReader {
                 + "COALESCE(SUM(NPAGES), 0) * 4096 total_data_length FROM SYSCAT.TABLES "
                 + "WHERE TABSCHEMA = ? AND TYPE = 'T'", schema);
         return new SchemaStatistics(number(row, "total_tables"), number(row, "total_rows"), number(row, "total_data_length"));
+    }
+
+    private TableStatistics dmTable(QualifiedTableName name) {
+        String owner = first(name.getSchema(), currentSchema());
+        Map<String, Object> base = one("SELECT NUM_ROWS row_count, AVG_ROW_LEN avg_row_length FROM ALL_TABLES "
+                + "WHERE OWNER = ? AND TABLE_NAME = ?", owner, name.getTable());
+        long data = 0, index = 0;
+        try {
+            Map<String, Object> bytes = oneAggregate("SELECT COALESCE(SUM(CASE WHEN segment_type LIKE 'TABLE%' OR segment_type LIKE 'LOB%' THEN bytes ELSE 0 END), 0) data_length, "
+                    + "COALESCE(SUM(CASE WHEN segment_type LIKE 'INDEX%' THEN bytes ELSE 0 END), 0) index_length "
+                    + "FROM DBA_SEGMENTS WHERE owner = ? AND (segment_name = ? OR segment_name IN "
+                    + "(SELECT index_name FROM ALL_INDEXES WHERE owner = ? AND table_name = ?))", owner, name.getTable(), owner, name.getTable());
+            data = number(bytes, "data_length");
+            index = number(bytes, "index_length");
+        } catch (DataAccessException e) {
+            if (!permissionFailure(e)) throw e;
+            log.warn("达梦表容量统计降级 runId={} table={} reason=permission", LoggingSupport.currentRunId(), name.getTable());
+        }
+        return new TableStatistics(number(base, "row_count"), data, index, number(base, "avg_row_length"));
+    }
+
+    private SchemaStatistics dmSchema(SchemaInfo name) {
+        String owner = first(name.getName(), currentSchema());
+        Map<String, Object> counts = oneAggregate("SELECT COUNT(*) total_tables, COALESCE(SUM(NUM_ROWS), 0) total_rows "
+                + "FROM ALL_TABLES WHERE OWNER = ?", owner);
+        long data = 0;
+        try {
+            Map<String, Object> bytes = oneAggregate("SELECT COALESCE(SUM(bytes), 0) total_data_length FROM DBA_SEGMENTS "
+                    + "WHERE owner = ? AND (segment_type LIKE 'TABLE%' OR segment_type LIKE 'LOB%')", owner);
+            data = number(bytes, "total_data_length");
+        } catch (DataAccessException e) {
+            if (!permissionFailure(e)) throw e;
+            log.warn("达梦 Schema 容量统计降级 runId={} reason=permission", LoggingSupport.currentRunId());
+        }
+        return new SchemaStatistics(number(counts, "total_tables"), number(counts, "total_rows"), data);
     }
 
     private Map<String, Object> one(String sql, Object... args) {

@@ -14,6 +14,7 @@ public final class DialectRegistry {
         map.put(DatabaseType.SQL_SERVER, new SqlServerDialect());
         map.put(DatabaseType.POSTGRESQL, new PostgreSqlDialect());
         map.put(DatabaseType.DB2, new Db2Dialect());
+        map.put(DatabaseType.DM, new DmDialect());
     }
 
     public DatabaseDialect get(DatabaseType t) {

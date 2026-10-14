@@ -15,6 +15,7 @@ final class JdbcUrlBuilder {
             case SQL_SERVER: return 1433;
             case POSTGRESQL: return 5432;
             case DB2: return 50000;
+            case DM: return 5236;
             default: throw new SchemaLoomException("unsupported database type: " + type);
         }
     }
@@ -34,6 +35,7 @@ final class JdbcUrlBuilder {
             case SQL_SERVER: return "jdbc:sqlserver://${host}:${port};databaseName=${database}";
             case POSTGRESQL: return "jdbc:postgresql://${host}:${port}/${database}";
             case DB2: return "jdbc:db2://${host}:${port}/${database}";
+            case DM: return "jdbc:dm://${host}:${port}/${database}";
             default: throw new SchemaLoomException("unsupported database type: " + type.toString().toLowerCase(Locale.ENGLISH));
         }
     }

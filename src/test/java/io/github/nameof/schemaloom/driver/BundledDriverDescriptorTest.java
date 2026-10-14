@@ -21,6 +21,7 @@ public class BundledDriverDescriptorTest {
         copyDescriptor(fixtures, "sqlserver2022.properties", "mssql-jdbc-13.6.0.jre8.jar");
         copyDescriptor(fixtures, "postgresql16.properties", "postgresql-42.2.2.jar");
         copyDescriptor(fixtures, "mariadb114.properties", "mariadb-java-client-3.5.10.jar");
+        copyDescriptor(fixtures, "dm.properties", "DmJdbcDriver8.jar");
         List<DriverDescriptor> descriptors = new DriverDescriptorLoader().load(fixtures);
         Map<String, DriverDescriptor> byId = new HashMap<String, DriverDescriptor>();
         for (DriverDescriptor descriptor : descriptors) byId.put(descriptor.getId(), descriptor);
@@ -30,6 +31,7 @@ public class BundledDriverDescriptorTest {
         assertDescriptor(byId.get("oracle23"), DatabaseType.ORACLE, "oracle.jdbc.OracleDriver", "ojdbc8-23.26.3.0.0.jar", "jdbc:oracle:");
         assertDescriptor(byId.get("sqlserver2022"), DatabaseType.SQL_SERVER, "com.microsoft.sqlserver.jdbc.SQLServerDriver", "mssql-jdbc-13.6.0.jre8.jar", "jdbc:sqlserver:");
         assertDescriptor(byId.get("postgresql16"), DatabaseType.POSTGRESQL, "org.postgresql.Driver", "postgresql-42.2.2.jar", "jdbc:postgresql:");
+        assertDescriptor(byId.get("dm"), DatabaseType.DM, "dm.jdbc.driver.DmDriver", "DmJdbcDriver8.jar", "jdbc:dm:");
     }
 
     private void copyDescriptor(Path fixtures, String descriptor, String jar) throws Exception {
