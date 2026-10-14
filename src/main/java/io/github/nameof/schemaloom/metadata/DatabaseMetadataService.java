@@ -309,14 +309,32 @@ public final class DatabaseMetadataService {
         return new PrimaryKeyInfo(key.getName(), columns);
     }
 
+    /**
+     * 读取表的索引信息，过滤主键索引。
+     * 主键约束已隐式创建索引，不应作为独立索引出现在元数据中，所有下游消费者（target、statistics 等）均受益于此过滤。
+     */
     private List<IndexInfo> indexes(Table table) {
         List<IndexInfo> out = new ArrayList<IndexInfo>();
+        PrimaryKey primaryKey = table.getPrimaryKey();
         for (Index index : table.getIndexes()) {
+            // 跳过主键索引：主键约束已隐式创建索引，避免重复导致歧义和创建错误
+            if (isPrimaryKeyIndex(index, primaryKey))
+                continue;
             List<String> columns = new ArrayList<String>();
             for (IndexColumn column : index.getColumns()) columns.add(column.getName());
             out.add(new IndexInfo(index.getName(), index.getIndexType().toString(), index.isUnique(), columns));
         }
         return out;
+    }
+
+    private boolean isPrimaryKeyIndex(Index index, PrimaryKey primaryKey) {
+        if (primaryKey == null || !index.isUnique()) return false;
+        List<? extends IndexColumn> indexColumns = index.getColumns();
+        List<? extends TableConstraintColumn> pkColumns = primaryKey.getConstrainedColumns();
+        if (indexColumns.size() != pkColumns.size()) return false;
+        for (int i = 0; i < indexColumns.size(); i++)
+            if (!indexColumns.get(i).getName().equalsIgnoreCase(pkColumns.get(i).getName())) return false;
+        return true;
     }
 
     private List<ForeignKeyInfo> foreignKeys(Table table) {

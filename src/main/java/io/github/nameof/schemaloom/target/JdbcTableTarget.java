@@ -134,7 +134,6 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private void migrateIndexes(String q, TableInfo source, TableInfo target) {
         for (IndexInfo expected : source.getIndexes()) {
             if (expected.getName() == null || expected.getName().trim().isEmpty() || expected.getColumns().isEmpty()) continue;
-            if (isPrimaryKeyIndex(expected, source.getPrimaryKey())) continue;
             IndexInfo equivalent = null;
             IndexInfo sameName = null;
             for (IndexInfo actual : target.getIndexes()) {
@@ -154,12 +153,6 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return dialect.indexSql(tableName, Collections.singletonList(index));
     }
 
-    private boolean isPrimaryKeyIndex(IndexInfo index, PrimaryKeyInfo primaryKey) {
-        if (primaryKey == null || !index.isUnique() || index.getColumns().size() != primaryKey.getColumns().size()) return false;
-        for (int i = 0; i < index.getColumns().size(); i++)
-            if (!index.getColumns().get(i).equalsIgnoreCase(primaryKey.getColumns().get(i))) return false;
-        return true;
-    }
     private boolean sameDefinition(IndexInfo a, IndexInfo b) {
         if (a.isUnique() != b.isUnique() || a.getColumns().size() != b.getColumns().size()) return false;
         for (int i = 0; i < a.getColumns().size(); i++)
