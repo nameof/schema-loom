@@ -33,7 +33,7 @@ public class DatabaseConnectionInfo {
         this.database = database.trim();
         this.catalog = normalize(catalog);
         String configuredSchema = normalize(schema);
-        this.schema = type == DatabaseType.POSTGRESQL && configuredSchema == null ? "public" : configuredSchema;
+        this.schema = (type == DatabaseType.POSTGRESQL || type == DatabaseType.KINGBASE) && configuredSchema == null ? "public" : configuredSchema;
         this.username = user;
         this.password = password;
         this.driverId = normalize(driverId);

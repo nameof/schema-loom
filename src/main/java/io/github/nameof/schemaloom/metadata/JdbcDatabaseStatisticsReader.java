@@ -35,7 +35,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb")) return mysqlTable(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleTable(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerTable(name);
-        if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlTable(name);
+        if (StrUtil.containsIgnoreCase(product, "postgresql") || StrUtil.containsIgnoreCase(product, "kingbase")) return postgresqlTable(name);
         if (StrUtil.containsIgnoreCase(product, "db2")) return db2Table(name);
         if (StrUtil.containsIgnoreCase(product, "dm")) return dmTable(name);
         throw unsupported();
@@ -45,7 +45,7 @@ final class JdbcDatabaseStatisticsReader {
         if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb")) return mysqlSchema(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleSchema(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerSchema(name);
-        if (StrUtil.containsIgnoreCase(product, "postgresql")) return postgresqlSchema(name);
+        if (StrUtil.containsIgnoreCase(product, "postgresql") || StrUtil.containsIgnoreCase(product, "kingbase")) return postgresqlSchema(name);
         if (StrUtil.containsIgnoreCase(product, "db2")) return db2Schema(name);
         if (StrUtil.containsIgnoreCase(product, "dm")) return dmSchema(name);
         throw unsupported();

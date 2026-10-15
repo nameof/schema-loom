@@ -99,4 +99,25 @@ public class MetadataQueryTest {
         assertEquals("SCHEMALOOM", query.getSchema());
         assertEquals("SL_%", query.getTablePattern());
     }
+
+    @Test
+    public void kingbaseDefaultsToPublicSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.KINGBASE, "localhost", 54321,
+                "kingbase", "user", "password");
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
+        assertNull(query.getCatalog());
+        assertEquals("public", query.getSchema());
+    }
+
+    @Test
+    public void kingbaseUsesExplicitSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.KINGBASE, "localhost", 54321,
+                "kingbase", null, "myschema", "user", "password", null, null);
+
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "SL_%");
+
+        assertNull(query.getCatalog());
+        assertEquals("myschema", query.getSchema());
+        assertEquals("SL_%", query.getTablePattern());
+    }
 }

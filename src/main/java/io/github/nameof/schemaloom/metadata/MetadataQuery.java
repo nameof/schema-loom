@@ -24,6 +24,10 @@ public final class MetadataQuery {
             return new MetadataQuery(connectionInfo.getDatabase(), null, tablePattern);
         if (connectionInfo.getDatabaseType() == DatabaseType.POSTGRESQL)
             return new MetadataQuery(connectionInfo.getDatabase(), connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);
+        // KingbaseES 兼容 PostgreSQL 但 SchemaCrawler 的 schema 模式匹配不兼容，
+        // 不设置 catalog/schema 过滤，由下游代码做精确匹配
+        if (connectionInfo.getDatabaseType() == DatabaseType.KINGBASE)
+            return new MetadataQuery(null, connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);
         if (connectionInfo.getDatabaseType() == DatabaseType.DB2) {
             // DB2 的默认 schema 由连接会话决定（可能是用户名或其他），显式设置可能指向不存在的 schema，
             // 因此未配置时传 null，让 SchemaCrawler 和驱动自动发现合适的 schema

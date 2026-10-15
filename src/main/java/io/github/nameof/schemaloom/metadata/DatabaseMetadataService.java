@@ -134,10 +134,10 @@ public final class DatabaseMetadataService {
                                                    schemacrawler.schemacrawler.SchemaCrawlerOptions options) throws Exception {
         String product = provider.getConnection().getMetaData().getDatabaseProductName();
         String productLower = product == null ? "" : product.toLowerCase(Locale.ENGLISH);
-        boolean needsPluginWorkaround = productLower.contains("postgresql") || productLower.contains("db2");
+        boolean needsPluginWorkaround = productLower.contains("postgresql") || productLower.contains("db2") || productLower.contains("kingbase");
         if (!needsPluginWorkaround)
             return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
-        String pluginName = productLower.contains("db2") ? "db2" : "postgresql";
+        String pluginName = productLower.contains("db2") ? "db2" : productLower.contains("kingbase") ? "postgresql" : "postgresql";
         synchronized (SCHEMA_CRAWLER_COMPATIBILITY_LOCK) {
             String previous = System.getProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY);
             try {
@@ -235,9 +235,10 @@ public final class DatabaseMetadataService {
             if (product == null) return table;
             boolean mysql = cn.hutool.core.util.StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb");
             boolean postgres = product.toLowerCase(Locale.ENGLISH).contains("postgresql");
+            boolean kingbase = product.toLowerCase(Locale.ENGLISH).contains("kingbase");
             boolean sqlServer = product.toLowerCase(Locale.ENGLISH).contains("sql server");
             boolean db2 = product.toLowerCase(Locale.ENGLISH).contains("db2");
-            if (!mysql && !postgres && !sqlServer && !db2) return table;
+            if (!mysql && !postgres && !kingbase && !sqlServer && !db2) return table;
             Map<String, String> expressions = new HashMap<String, String>();
             String sql = mysql
                     ? "SELECT COLUMN_NAME, GENERATION_EXPRESSION FROM INFORMATION_SCHEMA.COLUMNS "
@@ -261,10 +262,18 @@ public final class DatabaseMetadataService {
                 sql = "SELECT COLNAME, TEXT FROM SYSCAT.COLUMNS "
                         + "WHERE TABSCHEMA = ? AND TABNAME = ? AND IDENTITY = 'N' AND GENERATED <> ' '";
             }
+            if (kingbase) {
+                // KingbaseES 的 char 类型对 <> '' 比较行为异常，需使用 = 's' 精确匹配存储型生成列。
+                sql = "SELECT a.attname, pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attribute a "
+                        + "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid "
+                        + "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                        + "LEFT JOIN pg_catalog.pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum "
+                        + "WHERE n.nspname = ? AND c.relname = ? AND a.attgenerated = 's'";
+            }
             PreparedStatement statement = provider.getConnection().prepareStatement(sql);
             try {
                 String namespaceParam;
-                if (postgres || sqlServer) namespaceParam = table.getName().getSchema();
+                if (postgres || kingbase || sqlServer) namespaceParam = table.getName().getSchema();
                 else if (db2) namespaceParam = table.getName().getSchema() != null ? table.getName().getSchema() : table.getName().getCatalog();
                 else namespaceParam = table.getName().getCatalog();
                 statement.setString(1, namespaceParam);
