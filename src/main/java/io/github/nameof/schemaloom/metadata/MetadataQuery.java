@@ -20,7 +20,8 @@ public final class MetadataQuery {
      */
     public static MetadataQuery fromConnectionInfo(DatabaseConnectionInfo connectionInfo, String tablePattern) {
         if (connectionInfo == null) throw new IllegalArgumentException("连接配置不能为空");
-        if (connectionInfo.getDatabaseType() == DatabaseType.MYSQL || connectionInfo.getDatabaseType() == DatabaseType.MARIADB)
+        if (connectionInfo.getDatabaseType() == DatabaseType.MYSQL || connectionInfo.getDatabaseType() == DatabaseType.MARIADB
+                || connectionInfo.getDatabaseType() == DatabaseType.GBASE)
             return new MetadataQuery(connectionInfo.getDatabase(), null, tablePattern);
         if (connectionInfo.getDatabaseType() == DatabaseType.POSTGRESQL)
             return new MetadataQuery(connectionInfo.getDatabase(), connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);

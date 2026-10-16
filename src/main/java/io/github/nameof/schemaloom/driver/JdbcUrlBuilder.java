@@ -17,6 +17,7 @@ final class JdbcUrlBuilder {
             case DB2: return 50000;
             case DM: return 5236;
             case KINGBASE: return 54321;
+            case GBASE: return 5258;
             default: throw new SchemaLoomException("unsupported database type: " + type);
         }
     }
@@ -38,6 +39,7 @@ final class JdbcUrlBuilder {
             case DB2: return "jdbc:db2://${host}:${port}/${database}";
             case DM: return "jdbc:dm://${host}:${port}/${database}";
             case KINGBASE: return "jdbc:kingbase8://${host}:${port}/${database}";
+            case GBASE: return "jdbc:gbase://${host}:${port}/${database}";
             default: throw new SchemaLoomException("unsupported database type: " + type.toString().toLowerCase(Locale.ENGLISH));
         }
     }

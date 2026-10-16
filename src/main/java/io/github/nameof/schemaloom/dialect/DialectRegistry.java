@@ -16,6 +16,7 @@ public final class DialectRegistry {
         map.put(DatabaseType.DB2, new Db2Dialect());
         map.put(DatabaseType.DM, new DmDialect());
         map.put(DatabaseType.KINGBASE, new KingbaseDialect());
+        map.put(DatabaseType.GBASE, new GBase8aDialect());
     }
 
     public DatabaseDialect get(DatabaseType t) {

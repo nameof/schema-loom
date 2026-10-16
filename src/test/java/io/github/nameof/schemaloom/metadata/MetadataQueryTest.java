@@ -120,4 +120,24 @@ public class MetadataQueryTest {
         assertEquals("myschema", query.getSchema());
         assertEquals("SL_%", query.getTablePattern());
     }
+
+    @Test
+    public void gbaseUsesDatabaseAsCatalog() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.GBASE, "localhost", 5258,
+                "gbase", "user", "password");
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
+        assertEquals("gbase", query.getCatalog());
+        assertNull(query.getSchema());
+        assertEquals("%", query.getTablePattern());
+    }
+
+    @Test
+    public void gbaseIgnoresExplicitSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.GBASE, "localhost", 5258,
+                "gbase", null, "myschema", "user", "password", null, null);
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "sl_%");
+        assertEquals("gbase", query.getCatalog());
+        assertNull(query.getSchema());
+        assertEquals("sl_%", query.getTablePattern());
+    }
 }
