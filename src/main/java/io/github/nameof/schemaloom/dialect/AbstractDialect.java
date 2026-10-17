@@ -56,6 +56,10 @@ abstract class AbstractDialect implements DatabaseDialect {
         return sql;
     }
 
+    /**
+     * 主键索引的剔除统一在 {@code DatabaseMetadataService#indexes} 完成（含保留名与列集合两项判据），
+     * 方言层不再重复过滤，避免同一规则在两处以不同判据各实现一遍。
+     */
     @Override
     public List<String> indexSql(String table, List<IndexInfo> indexes) {
         return standardIndexSql(table, indexes);

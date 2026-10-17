@@ -19,11 +19,10 @@ public class MariaDbContractTest {
         DatabaseDialect dialect = new DialectRegistry().get(DatabaseType.MARIADB);
         assertNotSame(new DialectRegistry().get(DatabaseType.MYSQL).getClass(), dialect.getClass());
         assertEquals("`shop`.`order`", dialect.quote(new QualifiedTableName("shop", null, "order")));
-        assertEquals("DECIMAL(65,38)", dialect.mapping(LogicalType.DECIMAL).getDdlType(new FieldSchema("amount", LogicalType.DECIMAL, true, null, 65, 38)));
+        // MariaDB 与 MySQL 一致：小数位上限 30，不是 38
+        assertEquals("DECIMAL(65,30)", dialect.mapping(LogicalType.DECIMAL).getDdlType(new FieldSchema("amount", LogicalType.DECIMAL, true, null, 65, 38)));
         for (LogicalType type : LogicalType.values()) assertNotNull(dialect.mapping(type));
         ViewDefinitionQuery view = dialect.viewDefinitionQuery(config, new QualifiedTableName("shop", null, "orders"));
         assertTrue(view.getSql().contains("INFORMATION_SCHEMA.VIEWS"));
-        assertTrue(dialect.indexSql("`orders`", java.util.Collections.singletonList(
-                new IndexInfo("PRIMARY", "btree", true, java.util.Collections.singletonList("id")))).isEmpty());
     }
 }

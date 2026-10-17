@@ -7,7 +7,6 @@ import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
 import io.github.nameof.schemaloom.metadata.ColumnInfo;
 import io.github.nameof.schemaloom.metadata.TableInfo;
-import io.github.nameof.schemaloom.metadata.IndexInfo;
 
 import java.util.*;
 
@@ -54,14 +53,6 @@ final class MariaDbDialect extends AbstractDialect {
                 + "WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?", Arrays.<Object>asList(schema, view.getTable()));
     }
 
-    /** 主键已由 CREATE TABLE 创建，MariaDB 保留的 PRIMARY 索引不能再次创建。 */
-    @Override
-    public List<String> indexSql(String table, List<IndexInfo> indexes) {
-        List<IndexInfo> secondary = new ArrayList<IndexInfo>();
-        for (IndexInfo index : indexes)
-            if (!StrUtil.equalsIgnoreCase("PRIMARY", index.getName())) secondary.add(index);
-        return super.indexSql(table, secondary);
-    }
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
         java.util.EnumMap<LogicalType, DatabaseTypeMapping> mappings = new java.util.EnumMap<LogicalType, DatabaseTypeMapping>(LogicalType.class);
         // 这里必须逐项登记；不要用遍历枚举加默认 supported，避免新增类型被错误放行。
@@ -69,9 +60,10 @@ final class MariaDbDialect extends AbstractDialect {
         mappings.put(LogicalType.INT16, DatabaseTypeMapping.supported("SMALLINT"));
         mappings.put(LogicalType.INT32, DatabaseTypeMapping.supported("INT"));
         mappings.put(LogicalType.INT64, DatabaseTypeMapping.supported("BIGINT"));
+        // MariaDB 与 MySQL 一致：精度上限 65，小数位上限 30。
         mappings.put(LogicalType.DECIMAL, DatabaseTypeMapping.supported(f ->
                 "DECIMAL(" + Math.min(f.getPrecision() == null ? 65 : f.getPrecision(), 65) + ","
-                        + Math.min(f.getScale() == null ? 0 : f.getScale(), 38) + ")"));
+                        + Math.min(f.getScale() == null ? 0 : f.getScale(), 30) + ")"));
         mappings.put(LogicalType.FLOAT32, DatabaseTypeMapping.supported("FLOAT"));
         mappings.put(LogicalType.FLOAT64, DatabaseTypeMapping.supported("DOUBLE"));
         mappings.put(LogicalType.STRING, DatabaseTypeMapping.supported(f -> {

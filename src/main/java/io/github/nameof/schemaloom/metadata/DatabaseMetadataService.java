@@ -1,5 +1,6 @@
 package io.github.nameof.schemaloom.metadata;
 
+import cn.hutool.core.util.StrUtil;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.ConnectionProvider;
 import io.github.nameof.schemaloom.source.JdbcTypes;
@@ -320,7 +321,9 @@ public final class DatabaseMetadataService {
 
     /**
      * 读取表的索引信息，过滤主键索引。
-     * 主键约束已隐式创建索引，不应作为独立索引出现在元数据中，所有下游消费者（target、statistics 等）均受益于此过滤。
+     * 主键约束已隐式创建索引，不应作为独立索引出现在元数据中。
+     * 这里是主键索引过滤的<b>唯一</b>落点，所有下游消费者（target、statistics 等）均受益于此过滤，
+     * 方言层不再重复过滤——否则同一规则会在两处以不同判据各实现一遍。
      */
     private List<IndexInfo> indexes(Table table) {
         List<IndexInfo> out = new ArrayList<IndexInfo>();
@@ -336,8 +339,20 @@ public final class DatabaseMetadataService {
         return out;
     }
 
+    /**
+     * 两项判据取其一即可判定为主键索引：
+     * <ol>
+     *   <li><b>保留名</b>：MySQL 系（MySQL / MariaDB / GBase 8a）的主键约束索引在元数据中直接名为 PRIMARY；
+     *       该判据不依赖主键元数据，即使驱动读不到主键也能兜住。</li>
+     *   <li><b>列集合</b>：通用判据，覆盖主键索引名由数据库自动生成的场景
+     *       （如 PostgreSQL 的 {@code <表>_pkey}、Oracle 的系统命名）。</li>
+     * </ol>
+     * 保留名判据要求索引本身是唯一的，避免误伤用户恰好命名为 PRIMARY 的普通索引。
+     */
     private boolean isPrimaryKeyIndex(Index index, PrimaryKey primaryKey) {
-        if (primaryKey == null || !index.isUnique()) return false;
+        if (!index.isUnique()) return false;
+        if (StrUtil.equalsIgnoreCase("PRIMARY", index.getName())) return true;
+        if (primaryKey == null) return false;
         List<? extends IndexColumn> indexColumns = index.getColumns();
         List<? extends TableConstraintColumn> pkColumns = primaryKey.getConstrainedColumns();
         if (indexColumns.size() != pkColumns.size()) return false;

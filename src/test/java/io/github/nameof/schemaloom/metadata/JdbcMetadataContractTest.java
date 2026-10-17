@@ -59,6 +59,31 @@ public class JdbcMetadataContractTest {
         connection.close();
     }
 
+    /**
+     * 主键索引的剔除在元数据层完成，是全局唯一的落点（方言层不再重复过滤）。
+     * 这里用 H2 复现 MySQL 系的保留索引名做验证。
+     */
+    @Test public void filtersReservedPrimaryKeyIndexFromMetadata() throws Exception {
+        Connection connection = DriverManager.getConnection("jdbc:h2:mem:pkindex;DB_CLOSE_DELAY=-1");
+        Statement statement = connection.createStatement();
+        // 模拟 MySQL 系：主键约束隐式创建的索引在元数据里直接名为 PRIMARY
+        statement.execute("CREATE TABLE reserved (id INT, name VARCHAR(20))");
+        statement.execute("CREATE UNIQUE INDEX \"PRIMARY\" ON reserved(name)");
+        // 非唯一索引即便叫 primary（忽略大小写）也不是主键索引，必须保留
+        statement.execute("CREATE TABLE plain (id INT, code VARCHAR(10))");
+        statement.execute("CREATE INDEX \"primary\" ON plain(code)");
+        statement.close();
+
+        DatabaseMetadataService service = new DatabaseMetadataService();
+        ConnectionProvider provider = provider(connection);
+        assertTrue(service.getTable(provider, new QualifiedTableName(null, "PUBLIC", "RESERVED")).getIndexes().isEmpty());
+        List<IndexInfo> kept = service.getTable(provider, new QualifiedTableName(null, "PUBLIC", "PLAIN")).getIndexes();
+        assertEquals(1, kept.size());
+        assertEquals("primary", kept.get(0).getName());
+        assertFalse(kept.get(0).isUnique());
+        connection.close();
+    }
+
     private ConnectionProvider provider(final Connection connection) {
         return new ConnectionProvider() {
             public Connection getConnection() { return connection; }

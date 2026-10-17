@@ -276,7 +276,10 @@ public class DialectTest {
                 .viewDefinitionQuery(oracle, new QualifiedTableName(null, "dbo", "orders_view"));
         assertEquals(Collections.<Object>singletonList("dbo.orders_view"), sqlServerQuery.getParameters());
         assertTrue(sqlServerQuery.getSql().contains("SUBSTRING(definition"));
-        assertTrue(sqlServerQuery.getSql().contains("CHARINDEX(' AS ', definition)"));
+        assertTrue(sqlServerQuery.getSql().contains("CHARINDEX(' AS ', UPPER(definition))"));
+        // CHARINDEX 落空时必须返回 NULL，不能截出一段错位的视图定义
+        assertTrue(sqlServerQuery.getSql().contains("CASE WHEN CHARINDEX(' AS ', UPPER(definition)) > 0"));
+        assertTrue(sqlServerQuery.getSql().contains(" THEN SUBSTRING(definition, CHARINDEX(' AS ', UPPER(definition)) + 4, LEN(definition)) END"));
 
         io.github.nameof.schemaloom.driver.DatabaseConnectionInfo db2 =
                 new io.github.nameof.schemaloom.driver.DatabaseConnectionInfo(DatabaseType.DB2, "host", 50000,
@@ -298,6 +301,52 @@ public class DialectTest {
                 new io.github.nameof.schemaloom.driver.DatabaseConnectionInfo(DatabaseType.KINGBASE, "host", 54321, "db", "user", "password");
         assertEquals(Collections.<Object>singletonList("public.orders_view"), registry.get(DatabaseType.KINGBASE)
                 .viewDefinitionQuery(kingbase, new QualifiedTableName(null, null, "orders_view")).getParameters());
+    }
+
+    @Test
+    public void capsDecimalScaleAtThirtyForMySqlFamily() {
+        DialectRegistry registry = new DialectRegistry();
+        FieldSchema decimal = new FieldSchema("v", LogicalType.DECIMAL, true, null, 20, 38);
+        // MySQL / MariaDB / GBase 8a 的小数位上限均为 30
+        assertEquals("DECIMAL(20,30)", registry.get(DatabaseType.MYSQL).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+        assertEquals("DECIMAL(20,30)", registry.get(DatabaseType.MARIADB).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+        assertEquals("DECIMAL(20,30)", registry.get(DatabaseType.GBASE).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+    }
+
+    @Test
+    public void attachesSqlServerCommentsToTargetSchemaAndTable() {
+        ColumnInfo column = new ColumnInfo("name", "VARCHAR", "owner's name", LogicalType.STRING,
+                Types.VARCHAR, 1, true, 30, null, null);
+        TableInfo source = new TableInfo(new QualifiedTableName(null, "sales", "people"), false, "TABLE",
+                Collections.singletonList(column), null, Collections.<IndexInfo>emptyList(),
+                Collections.<ForeignKeyInfo>emptyList(), Collections.<ConstraintInfo>emptyList(), "owner's table");
+        DatabaseDialect sqlServer = new DialectRegistry().get(DatabaseType.SQL_SERVER);
+
+        // 目标限定名带架构时，扩展属性必须挂到该架构下的目标表，而不是硬编码 dbo
+        List<String> qualified = sqlServer.commentSql("\"sales\".\"people\"", source);
+        assertTrue(qualified.get(0).contains("@level0name=N'sales'"));
+        assertTrue(qualified.get(0).contains("@level1name=N'people'"));
+        assertTrue(qualified.get(1).contains("@level2name=N'name'"));
+        assertTrue(qualified.get(0).contains("@value=N'owner''s table'"));
+
+        // REPLACE 模式的落点是临时表，注释不能落到源表名上
+        List<String> temporary = sqlServer.commentSql("\"sales\".\"people_tmp\"", source);
+        assertEquals(2, temporary.size());
+        assertTrue(temporary.get(0).contains("@level1name=N'people_tmp'"));
+        assertTrue(temporary.get(1).contains("@level1name=N'people_tmp'"));
+        assertFalse(temporary.get(0).contains("N'people'"));
+
+        // 目标限定名不含架构时回退源表架构，源也没有时回退 dbo
+        assertTrue(sqlServer.commentSql("\"people\"", source).get(0).contains("@level0name=N'sales'"));
+        TableInfo withoutSchema = new TableInfo(new QualifiedTableName(null, null, "people"), false, "TABLE",
+                Collections.singletonList(column), null, Collections.<IndexInfo>emptyList(),
+                Collections.<ForeignKeyInfo>emptyList(), Collections.<ConstraintInfo>emptyList(), "owner's table");
+        assertTrue(sqlServer.commentSql("\"people\"", withoutSchema).get(0).contains("@level0name=N'dbo'"));
+
+        // 三段限定名（库.架构.表）取中间段作为架构
+        List<String> threeSegments = sqlServer.commentSql("\"shop\".\"sales\".\"people\"", source);
+        assertTrue(threeSegments.get(0).contains("@level0name=N'sales'"));
+        assertTrue(threeSegments.get(0).contains("@level1name=N'people'"));
     }
 
     @Test
