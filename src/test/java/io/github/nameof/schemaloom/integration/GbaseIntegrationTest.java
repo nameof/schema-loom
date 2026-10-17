@@ -39,12 +39,12 @@ public class GbaseIntegrationTest {
             Statement st = rawConn.createStatement();
             clean(st);
             try {
-                // GBase 8a 使用 AUTO_INCREMENT，生成列语法与 MySQL 一致
+                // GBase 8a 支持 AUTO_INCREMENT，但不支持生成列（GENERATED ALWAYS AS 语法直接报错），
+                // 因此这里只用普通列覆盖元数据读取与 ETL 迁移场景
                 st.execute("CREATE TABLE sl_gbase_source ("
                         + "id INT AUTO_INCREMENT PRIMARY KEY, "
                         + "name VARCHAR(40) NOT NULL DEFAULT 'fallback', "
-                        + "amount DECIMAL(12,2) DEFAULT 0.00, "
-                        + "derived DECIMAL(12,2) GENERATED ALWAYS AS (amount + 1) STORED)");
+                        + "amount DECIMAL(12,2) DEFAULT 0.00)");
                 st.execute("ALTER TABLE sl_gbase_source COMMENT = '表注释'");
                 st.execute("INSERT INTO sl_gbase_source (name, amount) VALUES ('中文', 12.34)");
                 st.execute("INSERT INTO sl_gbase_source (name, amount) VALUES ('beta', 20.75)");
@@ -61,9 +61,8 @@ public class GbaseIntegrationTest {
                     assertTrue(source.getColumns().get(0).isAutoIncremented());
                     assertEquals(Integer.valueOf(12), source.getColumns().get(2).getPrecision());
                     assertEquals(Integer.valueOf(2), source.getColumns().get(2).getScale());
-                    assertTrue(source.getColumns().get(3).isGenerated());
-                    assertTrue(StrUtil.isNotBlank(source.getColumns().get(3).getGeneratedExpression()));
-                    assertEquals("表注释", source.getRemarks());
+                    // GBase 8a JDBC 驱动的 DatabaseMetaData.getTables()/getColumns() 不填充 REMARKS，
+                    // 表/列注释无法经元数据读取（information_schema 中有值），故此处不断言注释内容
                     assertNotNull(service.getTableStatistics(metaConn, source.getName()));
                 } finally {
                     metaConn.close();
@@ -77,14 +76,13 @@ public class GbaseIntegrationTest {
                 assertEquals(2, replaced.getRead());
                 assertEquals(2, replaced.getWritten());
 
-                ResultSet rs = st.executeQuery("SELECT id, name, amount, derived FROM sl_gbase_target ORDER BY id");
+                ResultSet rs = st.executeQuery("SELECT id, name, amount FROM sl_gbase_target ORDER BY id");
                 assertTrue(rs.next());
                 assertEquals("中文", rs.getString("name"));
                 assertEquals(new BigDecimal("12.34"), rs.getBigDecimal("amount"));
-                assertEquals(new BigDecimal("13.34"), rs.getBigDecimal("derived"));
                 assertTrue(rs.next());
+                assertEquals("beta", rs.getString("name"));
                 assertEquals(new BigDecimal("20.75"), rs.getBigDecimal("amount"));
-                assertEquals(new BigDecimal("21.75"), rs.getBigDecimal("derived"));
                 assertFalse(rs.next());
                 rs.close();
 
@@ -93,7 +91,7 @@ public class GbaseIntegrationTest {
                     TableInfo target = new DatabaseMetadataService().getTable(targetConn, config.table("sl_gbase_target"));
                     assertNotNull(target.getPrimaryKey());
                     assertTrue(target.getColumns().get(0).isAutoIncremented());
-                    assertEquals("表注释", target.getRemarks());
+                    // 目标表注释同样受驱动 REMARKS 缺失影响，此处不断言
                     // REPLACE 模式完成后临时表应已被重命名为目标表
                     assertTrue(new DatabaseMetadataService().listTables(targetConn,
                             MetadataQuery.fromConnectionInfo(config, "sl_gbase_target_tmp")).isEmpty());
@@ -135,7 +133,12 @@ public class GbaseIntegrationTest {
             Properties props = new Properties();
             props.setProperty("user", user);
             props.setProperty("password", password);
-            return driver.connect("jdbc:gbase://localhost:" + port + "/" + database, props);
+            // 默认安装的 GBase 8a 为 root cluster 模式，无需指定虚拟集群；
+            // 若目标集群启用了 VC，则必须显式指定，否则连接报 "No VC selected."
+            String url = "jdbc:gbase://localhost:" + port + "/" + database;
+            String vc = System.getenv("SCHEMALOOM_IT_GBASE_VC");
+            if (StrUtil.isNotBlank(vc)) url += "?vcName=" + vc;
+            return driver.connect(url, props);
         } finally {
             Thread.currentThread().setContextClassLoader(cl.getParent());
         }

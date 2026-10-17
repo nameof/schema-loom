@@ -34,6 +34,28 @@ final class GBase8aDialect extends AbstractDialect {
     @Override
     protected String identityColumn(ColumnInfo column) { return "AUTO_INCREMENT"; }
 
+    /**
+     * GBase 8a 默认禁止在 INSERT 中显式指定自增列的值
+     * （报 auto-increment column should not be specified in insert），
+     * 需要通过会话级参数 _gbase_auto_increment_allow_insert 临时放开，
+     * 作用等价于 SQL Server 的 SET IDENTITY_INSERT。
+     * 迁移场景必须保留源表主键值，因此写入前后成对开启/关闭。
+     */
+    @Override
+    public String identityInsertOnSql(String table) { return "SET _gbase_auto_increment_allow_insert = 1"; }
+
+    @Override
+    public String identityInsertOffSql(String table) { return "SET _gbase_auto_increment_allow_insert = 0"; }
+
+    /**
+     * GBase 8a 不支持生成列（GENERATED ALWAYS AS 语法直接报错），
+     * 迁移含生成列的源表时必须显式失败，避免产出无法执行的 DDL。
+     */
+    @Override
+    protected String generatedColumn(ColumnInfo column) {
+        throw new IllegalArgumentException("GBase 8a 不支持生成列，无法迁移字段 '" + column.getName() + "'");
+    }
+
     @Override
     public String renameTableSql(String table, String newTable) {
         return "ALTER TABLE " + table + " RENAME TO " + newTable;

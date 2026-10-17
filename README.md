@@ -650,21 +650,42 @@ mvn -Pintegration "-Dtest=KingbaseIntegrationTest" test
 
 GBase 8a（本地镜像 `localhost/gbase8a:9.5.3-free`，默认端口 `5258`）：
 
-将 GBase JDBC 驱动 JAR（`gbase-connector-java-9.5.0.10-build1-bin.jar`）放入仓库 `drivers` 目录，与 `gbase8a.properties` 同目录；不提交驱动 JAR。默认端口为 5258，URL 为 `jdbc:gbase://host:port/database`。内置描述的服务端版本范围为 `[9.5,)`。
+将 GBase JDBC 驱动 JAR（`gbase-connector-java-9.5.0.10-build1-bin.jar`）放入仓库 `drivers` 目录，与 `gbase8a.properties` 同目录；不提交驱动 JAR。默认端口为 5258，URL 为 `jdbc:gbase://host:port/database`。内置描述的服务端版本范围为 `[9.5,)`。默认安装的 GBase 8a 为 root cluster 模式，连接与 DDL 均无需指定虚拟集群；若目标集群启用了虚拟集群（VC），则必须在 URL 追加 `?vcName=<vc名>`（否则服务端返回 `No VC selected.`），同时 `gbase8a.properties` 的 `urlTemplate`、集成测试的 `SCHEMALOOM_IT_GBASE_VC` 以及启动脚本中的 DDL 都需按该 VC 名调整。
 
 ```powershell
 $env:SCHEMALOOM_IT_GBASE_PASSWORD = "<本地一次性测试密码>"
 .\scripts\start-gbase-integration.ps1
 $env:SCHEMALOOM_IT_GBASE_HOST = "localhost"
 $env:SCHEMALOOM_IT_GBASE_PORT = "15258"
-$env:SCHEMALOOM_IT_GBASE_DATABASE = "gbase"
-$env:SCHEMALOOM_IT_GBASE_USER = "gbase"
+$env:SCHEMALOOM_IT_GBASE_DATABASE = "schemaloom_it"
+$env:SCHEMALOOM_IT_GBASE_USER = "schemaloom"
 $env:SCHEMALOOM_IT_GBASE_DRIVER_ID = "gbase8a"
+# 仅当集群启用了虚拟集群时才需要设置（默认安装为 root cluster 模式，无 VC）
+# $env:SCHEMALOOM_IT_GBASE_VC = "vc0"
 mvn -Pintegration "-Dtest=GbaseIntegrationTest" test
 .\scripts\stop-gbase-integration.ps1
 ```
 
-容器绑定 `127.0.0.1:15258`，镜像为 `localhost/gbase8a:9.5.3-free`。容器需要 `--privileged` 模式运行。使用默认用户 `gbase`，密码通过环境变量传递。测试验证连接、表/Schema 元数据、AUTO_INCREMENT 自增列和生成列、DECIMAL 值（精度上限 38）、统计、APPEND/REPLACE、视图迁移及临时表清理。未设置主机变量时跳过测试。GBase 8a 不支持 `TIME WITH TIME ZONE` 和 `TIMESTAMP WITH TIME ZONE`，时区类型降级为 `TIME` 和 `DATETIME`。
+容器绑定 `127.0.0.1:15258`，镜像为 `localhost/gbase8a:9.5.3-free`。容器需要 `--privileged` 模式运行。启动脚本会在容器内完成集群初始化、建立 distribution、初始化 nodedatamap，并创建测试库 `schemaloom_it` 与用户 `schemaloom`（可用 `SCHEMALOOM_IT_GBASE_DATABASE` / `SCHEMALOOM_IT_GBASE_USER` 覆盖），最后校验集群与测试库可用。密码通过环境变量传递，且不应包含单引号。测试验证连接、表/Schema 元数据、AUTO_INCREMENT 自增列、DECIMAL 值（精度上限 38）、统计、APPEND/REPLACE、视图迁移及临时表清理。未设置主机变量时跳过测试。
+
+GBase 8a 存在以下限制，测试用例与方言实现已相应适配：
+
+- 不支持生成列（`GENERATED ALWAYS AS` 语法直接报错）。`GBase8aDialect` 在迁移含生成列的表时显式抛出异常，而不是产出无法执行的 DDL；集成测试不使用生成列。
+- 默认禁止在 `INSERT` 中显式指定自增列的取值（报 `auto-increment column should not be specified in insert`）。`GBase8aDialect` 通过会话级参数 `_gbase_auto_increment_allow_insert` 在写入前后成对开启/关闭（作用等价于 SQL Server 的 `SET IDENTITY_INSERT`），从而在迁移中保留源表主键值；该参数为会话级，依赖同一次写入复用同一连接。
+- JDBC 驱动的 `DatabaseMetaData.getTables()` / `getColumns()` 不填充 `REMARKS`，表与列注释无法经元数据读取（`information_schema` 中有值），因此元数据测试不断言注释内容。
+- 不支持 `TIME WITH TIME ZONE` 和 `TIMESTAMP WITH TIME ZONE`，时区类型降级为 `TIME` 和 `DATETIME`。
+- 默认安装为 root cluster 模式，不存在虚拟集群 `vc0`；连接、DDL 与 `gcadmin distribution` 均无需指定 VC。
+- 安装脚本生成的 gnode/gcluster 内存与线程参数按大内存物理机计算（如 `max_heap_table_size=160GB`、`thread_pool_size=512`），在受限容器内存下会导致排序类查询失败（报 `Failed to query in gnode` / `can't get datasession` / `Failed to get CommonTaskQueue`）。
+- `gcadmin distribution` 只接受 `<rack><node ip="..."/></rack>` 形式的 `gcChangeInfo.xml`，写成 `<server ip="..."/>` 会被拒绝并报 `error format for distribution in xml file content`；`d 0`（不生成备份分片）会触发交互确认，必须喂入 `Y`，否则命令会一直等待标准输入直到超时。建库前必须执行 `initnodedatamap`，否则报 `nodedatamap is not initialized`。
+- 实例目录为 `/opt/<节点 IP>`，而 podman 重启容器后 IP 可能漂移；一旦漂到别的地址，服务会加载历史残留的旧实例目录，导致库、用户全部「消失」（曾漂回 `10.88.0.2` 后加载了 VC 模式的旧实例。因此启动脚本用 `--ip` 固定容器 IP，默认为 `10.88.0.10`，可用 `SCHEMALOOM_IT_GBASE_NODE_IP` 覆盖。
+- 重启已存在的容器**不会**自动拉起 GBase 服务，需手工执行（必须先加载 profile，否则 `gcluster_services` 会 `command not found`）：
+
+  ```bash
+  podman start schema-loom-gbase-it
+  podman exec schema-loom-gbase-it bash -c "su - gbase -c '. /home/gbase/.gbase_profile; gcluster_services all start'"
+  ```
+
+以上容器侧问题（内存参数、XML 格式、喂 `Y`、`initnodedatamap`、实例目录探测、建库建用户）均已固化在 `start-gbase-integration.ps1` 中。
 
 Oracle 和 SQL Server 的容器测试验证已存在目标表的 `APPEND`、表元数据及统计；MySQL 和 PostgreSQL 的测试验证 `REPLACE`、表元数据、统计及视图迁移。Oracle 的 `SC_WITHOUT_DATABASE_PLUGIN` 使当前 SchemaCrawler 使用通用 JDBC 模式，以便采集 Free 26ai 普通用户的表。Oracle 视图定义迁移仍受当前 SchemaCrawler/Oracle LONG 定义读取限制，未列为通过项。SQL Server 视图定义读取会提取纯 SELECT 定义后再创建目标视图。不要把真实凭据提交到仓库。
 

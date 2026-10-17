@@ -32,7 +32,8 @@ final class JdbcDatabaseStatisticsReader {
     }
 
     TableStatistics table(QualifiedTableName name) {
-        if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb")) return mysqlTable(name);
+        // GBase 8a 的 INFORMATION_SCHEMA 与 MySQL 兼容（TABLE_TYPE 同样取 BASE TABLE），统计查询可直接复用
+        if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb", "gbase")) return mysqlTable(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleTable(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerTable(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql") || StrUtil.containsIgnoreCase(product, "kingbase")) return postgresqlTable(name);
@@ -42,7 +43,8 @@ final class JdbcDatabaseStatisticsReader {
     }
 
     SchemaStatistics schema(SchemaInfo name) {
-        if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb")) return mysqlSchema(name);
+        // 同上：GBase 8a 复用 MySQL 的 schema 级统计查询
+        if (StrUtil.containsAnyIgnoreCase(product, "mysql", "mariadb", "gbase")) return mysqlSchema(name);
         if (StrUtil.containsIgnoreCase(product, "oracle")) return oracleSchema(name);
         if (StrUtil.containsIgnoreCase(product, "sql server") || StrUtil.containsIgnoreCase(product, "sqlserver")) return sqlServerSchema(name);
         if (StrUtil.containsIgnoreCase(product, "postgresql") || StrUtil.containsIgnoreCase(product, "kingbase")) return postgresqlSchema(name);
