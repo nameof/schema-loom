@@ -56,15 +56,44 @@ final class SqlServerDialect extends AbstractDialect {
         return StrUtil.replace(StrUtil.replace(value, "\".\"", "."), "\"", "");
     }
 
+    /**
+     * 扩展属性必须挂到实际写入的目标表对象上，因此架构名与表名都取自目标限定名，
+     * 而不是源表元数据——REPLACE 模式下目标对象是 {@code <表>_tmp}。
+     */
     @Override
     public List<String> commentSql(String table, TableInfo source) {
         List<String> sql = new ArrayList<String>();
-        String tableName = source.getName().getTable();
+        String target = unquoteQualifiedName(table);
+        String tableName = lastSegment(target);
+        if (StrUtil.isBlank(tableName)) tableName = source.getName().getTable();
+        String schema = resolveSchema(target, source.getName());
         if (source.getRemarks() != null)
-            sql.add("EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'" + source.getRemarks().replace("'", "''") + "', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'" + tableName + "'");
+            sql.add("EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'" + literal(source.getRemarks())
+                    + "', @level0type=N'SCHEMA', @level0name=N'" + literal(schema)
+                    + "', @level1type=N'TABLE', @level1name=N'" + literal(tableName) + "'");
         for (ColumnInfo column : source.getColumns()) if (column.getRemarks() != null)
-            sql.add("EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'" + column.getRemarks().replace("'", "''") + "', @level0type=N'SCHEMA', @level0name=N'dbo', @level1type=N'TABLE', @level1name=N'" + tableName + "', @level2type=N'COLUMN', @level2name=N'" + column.getName() + "'");
+            sql.add("EXEC sys.sp_addextendedproperty @name=N'MS_Description', @value=N'" + literal(column.getRemarks())
+                    + "', @level0type=N'SCHEMA', @level0name=N'" + literal(schema)
+                    + "', @level1type=N'TABLE', @level1name=N'" + literal(tableName)
+                    + "', @level2type=N'COLUMN', @level2name=N'" + literal(column.getName()) + "'");
         return sql;
+    }
+
+    /** 目标限定名含架构段时取架构段；否则回退源表架构，最后回退 SQL Server 默认架构 dbo。 */
+    private String resolveSchema(String target, QualifiedTableName source) {
+        List<String> segments = StrUtil.split(target, '.');
+        if (segments.size() >= 3) return segments.get(1);
+        if (segments.size() == 2) return segments.get(0);
+        return source.getSchema() == null ? "dbo" : source.getSchema();
+    }
+
+    private String lastSegment(String target) {
+        List<String> segments = StrUtil.split(target, '.');
+        return segments.isEmpty() ? null : segments.get(segments.size() - 1);
+    }
+
+    private String literal(String value) {
+        return StrUtil.replace(value, "'", "''");
     }
 
     @Override
@@ -86,10 +115,19 @@ final class SqlServerDialect extends AbstractDialect {
     @Override
     public String identityInsertOffSql(String table) { return "SET IDENTITY_INSERT " + table + " OFF"; }
 
+    /**
+     * OBJECT_DEFINITION 返回完整的 CREATE VIEW 文本，需要截掉视图头只保留查询体。
+     * CHARINDEX 找不到 ' AS ' 时返回 0，此时 SUBSTRING 会从第 4 个字符起截取，
+     * 静默产出一段错位的视图定义；因此用 CASE 显式保护，取不到时返回 NULL，
+     * 由调用方按“视图定义不可用”报错。UPPER 用于兼容区分大小写的排序规则。
+     */
     @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
         String name = view.getSchema() == null ? view.getTable() : view.getSchema() + "." + view.getTable();
-        return new ViewDefinitionQuery("SELECT SUBSTRING(definition, CHARINDEX(' AS ', definition) + 4, LEN(definition)) FROM (SELECT OBJECT_DEFINITION(OBJECT_ID(?)) AS definition) AS view_definition", Collections.<Object>singletonList(name));
+        String sql = "SELECT CASE WHEN CHARINDEX(' AS ', UPPER(definition)) > 0"
+                + " THEN SUBSTRING(definition, CHARINDEX(' AS ', UPPER(definition)) + 4, LEN(definition)) END"
+                + " FROM (SELECT OBJECT_DEFINITION(OBJECT_ID(?)) AS definition) AS view_definition";
+        return new ViewDefinitionQuery(sql, Collections.<Object>singletonList(name));
     }
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
