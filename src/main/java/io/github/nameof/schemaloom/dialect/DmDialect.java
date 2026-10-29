@@ -12,8 +12,8 @@ final class DmDialect extends AbstractDialect {
     private final Map<LogicalType, DatabaseTypeMapping> mappings = mappings();
 
     @Override protected String quoteChar() { return "\""; }
-    // 达梦未加引号的标识符存储为大写（与 Oracle 兼容行为），统一大写后加引号。
-    @Override public String quote(String s) { return super.quote(s.toUpperCase(Locale.ENGLISH)); }
+    // 与 DB2 同理：不改写大小写，避免访问库里已存在的加引号小写对象时找不到
+    // （实测：SELECT FROM SL_B5."MYTABLE" 报对象不存在，而 SL_B5."mytable" 正常）。
     @Override public DatabaseTypeMapping mapping(LogicalType type) { return mappings.get(type); }
     @Override protected String identityColumn(ColumnInfo column) { return "IDENTITY(1,1)"; }
 

@@ -185,6 +185,11 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             if (mapping == null || !mapping.isSupported())
                 throw new SchemaLoomException("target does not support logical type " + field.getLogicalType()
                         + " for field '" + field.getName() + "'");
+            // 降级不能静默：时区等成分会被丢弃，必须让使用者看见
+            LogicalType degraded = mapping.degradesTo();
+            if (degraded != null)
+                log.warn("目标方言不支持该类型，已降级写入 runId={} field={} from={} to={}",
+                        LoggingSupport.currentRunId(), field.getName(), field.getLogicalType(), degraded);
         }
     }
 
@@ -263,12 +268,22 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         if (value == null && tableInfo != null) {
             for (ColumnInfo column : tableInfo.getColumns()) {
                 if (column.getName().equalsIgnoreCase(field.getName())) {
-                    ps.setNull(index, column.getJdbcType());
+                    ps.setNull(index, nullSqlType(field, column.getJdbcType()));
                     return;
                 }
             }
         }
-        JdbcValueCodec.write(ps, index, field, value);
+        JdbcValueCodec.write(ps, index, field, value, dialect);
+    }
+
+    /**
+     * null 绑定同样要跟随方言的降级结果：源列的 JDBC 类型码可能不被目标驱动识别
+     * （带时区的类型码 2013 在 DB2 上直接报「无法识别的 JDBC 类型」）。
+     */
+    private int nullSqlType(FieldSchema field, int sourceJdbcType) {
+        DatabaseTypeMapping mapping = dialect.mapping(field.getLogicalType());
+        LogicalType degraded = mapping == null ? null : mapping.degradesTo();
+        return degraded == null ? sourceJdbcType : LogicalTypeCatalog.get(degraded).jdbcSqlType();
     }
 
     public void close() {

@@ -152,7 +152,7 @@ final class SqlServerDialect extends AbstractDialect {
         mappings.put(LogicalType.BINARY, DatabaseTypeMapping.supported(f ->
                 f.getLength() != null && f.getLength() <= 8000
                         ? "VARBINARY(" + f.getLength() + ")" : "VARBINARY(MAX)"));
-        mappings.put(LogicalType.OFFSET_TIME, DatabaseTypeMapping.supported("TIME"));
+        mappings.put(LogicalType.OFFSET_TIME, DatabaseTypeMapping.degraded("TIME", LogicalType.TIME));
         mappings.put(LogicalType.OFFSET_TIMESTAMP, DatabaseTypeMapping.supported("DATETIMEOFFSET"));
         requireCompleteMappings(mappings);
         return java.util.Collections.unmodifiableMap(mappings);
