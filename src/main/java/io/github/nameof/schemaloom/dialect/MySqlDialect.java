@@ -1,5 +1,6 @@
 package io.github.nameof.schemaloom.dialect;
 
+import cn.hutool.core.util.StrUtil;
 import io.github.nameof.schemaloom.api.*;
 import io.github.nameof.schemaloom.driver.DatabaseConnectionInfo;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
@@ -38,9 +39,14 @@ final class MySqlDialect extends AbstractDialect {
     public List<String> commentSql(String table, TableInfo source) {
         List<String> sql = new ArrayList<String>();
         if (source.getRemarks() != null)
-            sql.add("ALTER TABLE " + table + " COMMENT = '" + source.getRemarks().replace("'", "''") + "'");
+            sql.add("ALTER TABLE " + table + " COMMENT = '" + commentLiteral(source.getRemarks()) + "'");
         // TODO: migrate column comments only when a lossless MySQL syntax is available.
         return sql;
+    }
+
+    /** MySQL 的字符串里 \ 是转义符，必须先转义反斜杠再转义单引号。 */
+    private String commentLiteral(String value) {
+        return StrUtil.replace(StrUtil.replace(value, "\\", "\\\\"), "'", "''");
     }
 
     @Override
@@ -72,8 +78,8 @@ final class MySqlDialect extends AbstractDialect {
         mappings.put(LogicalType.TIME, DatabaseTypeMapping.supported("TIME"));
         mappings.put(LogicalType.TIMESTAMP, DatabaseTypeMapping.supported("DATETIME"));
         mappings.put(LogicalType.BINARY, DatabaseTypeMapping.supported("BLOB"));
-        mappings.put(LogicalType.OFFSET_TIME, DatabaseTypeMapping.supported("TIME"));
-        mappings.put(LogicalType.OFFSET_TIMESTAMP, DatabaseTypeMapping.supported("DATETIME"));
+        mappings.put(LogicalType.OFFSET_TIME, DatabaseTypeMapping.degraded("TIME", LogicalType.TIME));
+        mappings.put(LogicalType.OFFSET_TIMESTAMP, DatabaseTypeMapping.degraded("DATETIME", LogicalType.TIMESTAMP));
         requireCompleteMappings(mappings);
         return java.util.Collections.unmodifiableMap(mappings);
     }

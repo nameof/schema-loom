@@ -179,21 +179,14 @@ public class DialectTest {
         for (DatabaseType type : DatabaseType.values()) {
             DatabaseDialect dialect = registry.get(type);
             String quote = (type == DatabaseType.MYSQL || type == DatabaseType.MARIADB || type == DatabaseType.GBASE) ? "`" : "\"";
-            // DB2/DM 将标识符转为大写再加引号
-            boolean uppercasesIdentifiers = type == DatabaseType.DB2 || type == DatabaseType.DM;
-            String expectedSelect = uppercasesIdentifiers ? (quote + "SELECT" + quote) : (quote + "select" + quote);
-            assertEquals(expectedSelect, dialect.quote("select"));
-            // DB2/DM 的 qualified name 也会大写
-            String expectedQualified = uppercasesIdentifiers
-                    ? (quote + "CAT" + quote + "." + quote + "APP" + quote + "." + quote + "ORDER" + quote)
-                    : (quote + "cat" + quote + "." + quote + "app" + quote + "." + quote + "order" + quote);
-            assertEquals(expectedQualified, dialect.quote(new QualifiedTableName("cat", "app", "order")));
-            // DB2/DM 的转义引号也会大写
-            String expectedEscaped = uppercasesIdentifiers ? (quote + "A" + quote + quote + "B" + quote) : (quote + "a" + quote + quote + "b" + quote);
-            assertEquals(expectedEscaped, dialect.quote("a" + quote + "b"));
-            // DB2/DM 的 DROP TABLE 也会大写
-            String expectedDrop = uppercasesIdentifiers ? ("DROP TABLE " + quote + "ORDER" + quote) : ("DROP TABLE " + quote + "order" + quote);
-            assertEquals(expectedDrop, dialect.dropTableSql(dialect.quote("order")));
+            // quote 一律原样保留大小写：元数据读到的标识符就是库里的实际存储名，
+            // 改写会让已存在的加引号小写对象找不到（DB2 / 达梦实测如此）。
+            // 「新建对象沿用大写」由 DatabaseConnectionInfo#table 的输入层规范化负责。
+            assertEquals(quote + "select" + quote, dialect.quote("select"));
+            assertEquals(quote + "cat" + quote + "." + quote + "app" + quote + "." + quote + "order" + quote,
+                    dialect.quote(new QualifiedTableName("cat", "app", "order")));
+            assertEquals(quote + "a" + quote + quote + "b" + quote, dialect.quote("a" + quote + "b"));
+            assertEquals("DROP TABLE " + quote + "order" + quote, dialect.dropTableSql(dialect.quote("order")));
         }
     }
 
@@ -311,6 +304,43 @@ public class DialectTest {
         assertEquals("DECIMAL(20,30)", registry.get(DatabaseType.MYSQL).mapping(LogicalType.DECIMAL).getDdlType(decimal));
         assertEquals("DECIMAL(20,30)", registry.get(DatabaseType.MARIADB).mapping(LogicalType.DECIMAL).getDdlType(decimal));
         assertEquals("DECIMAL(20,30)", registry.get(DatabaseType.GBASE).mapping(LogicalType.DECIMAL).getDdlType(decimal));
+    }
+
+    @Test
+    public void escapesBackslashAndQuoteInMySqlFamilyComments() {
+        ColumnInfo column = new ColumnInfo("name", "VARCHAR", null, LogicalType.STRING,
+                Types.VARCHAR, 1, true, 30, null, null);
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "people"), false, "TABLE",
+                Collections.singletonList(column), null, Collections.<IndexInfo>emptyList(),
+                Collections.<ForeignKeyInfo>emptyList(), Collections.<ConstraintInfo>emptyList(),
+                "path C:\\temp\\data 'quoted'");
+        // MySQL 系的字符串里 \ 是转义符：只转义单引号而不转义反斜杠会语法错
+        for (DatabaseType type : Arrays.asList(DatabaseType.MYSQL, DatabaseType.MARIADB, DatabaseType.GBASE)) {
+            String sql = new DialectRegistry().get(type).commentSql("`people`", source).get(0);
+            assertTrue(type + " 应转义反斜杠: " + sql, sql.contains("C:\\\\temp\\\\data"));
+            assertTrue(type + " 应转义单引号: " + sql, sql.contains("''quoted''"));
+        }
+    }
+
+    @Test
+    public void declaresDegradationOnlyForUnsupportedTemporalTypes() {
+        DialectRegistry registry = new DialectRegistry();
+        // 降级方言：DDL 与 JDBC 绑定都必须跟随降级，否则驱动报「无法识别的 JDBC 类型」
+        assertEquals(LogicalType.TIME, registry.get(DatabaseType.DB2).mapping(LogicalType.OFFSET_TIME).degradesTo());
+        assertEquals(LogicalType.TIMESTAMP, registry.get(DatabaseType.DB2).mapping(LogicalType.OFFSET_TIMESTAMP).degradesTo());
+        assertEquals(LogicalType.TIME, registry.get(DatabaseType.MYSQL).mapping(LogicalType.OFFSET_TIME).degradesTo());
+        assertEquals(LogicalType.TIMESTAMP, registry.get(DatabaseType.MYSQL).mapping(LogicalType.OFFSET_TIMESTAMP).degradesTo());
+        assertEquals(LogicalType.TIME, registry.get(DatabaseType.MARIADB).mapping(LogicalType.OFFSET_TIME).degradesTo());
+        assertEquals(LogicalType.TIME, registry.get(DatabaseType.GBASE).mapping(LogicalType.OFFSET_TIME).degradesTo());
+        // SQL Server 只降级 OFFSET_TIME，OFFSET_TIMESTAMP 有原生 DATETIMEOFFSET
+        assertEquals(LogicalType.TIME, registry.get(DatabaseType.SQL_SERVER).mapping(LogicalType.OFFSET_TIME).degradesTo());
+        assertNull(registry.get(DatabaseType.SQL_SERVER).mapping(LogicalType.OFFSET_TIMESTAMP).degradesTo());
+        // 原生支持带时区类型的方言不降级
+        for (DatabaseType type : Arrays.asList(DatabaseType.ORACLE, DatabaseType.POSTGRESQL,
+                DatabaseType.KINGBASE, DatabaseType.DM)) {
+            assertNull(type + " 原生支持 OFFSET_TIME", registry.get(type).mapping(LogicalType.OFFSET_TIME).degradesTo());
+            assertNull(type + " 原生支持 OFFSET_TIMESTAMP", registry.get(type).mapping(LogicalType.OFFSET_TIMESTAMP).degradesTo());
+        }
     }
 
     @Test
