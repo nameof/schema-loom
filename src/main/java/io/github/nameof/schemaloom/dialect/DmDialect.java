@@ -23,23 +23,18 @@ final class DmDialect extends AbstractDialect {
     @Override
     public String identityInsertOffSql(String table) { return "SET IDENTITY_INSERT " + table + " OFF"; }
 
-    // 达梦的 rename 输入可能包含已引用的小写标识符，需要大写后重建。
     // 达梦的 RENAME TO 子句只接受表名，不接受 schema 限定名。
+    // 标识符大小写必须与 quote() 保持一致：quote() 不再改写大小写，
+    // rename 若另行大写，会与临时表实际建成的名字（如 "T_tmp"）对不上而报对象不存在。
     @Override
     public String renameTableSql(String table, String newTable) {
-        return "ALTER TABLE " + uppercaseQuoted(table) + " RENAME TO " + uppercaseQuoted(extractTableName(newTable));
+        return "ALTER TABLE " + table + " RENAME TO " + extractTableName(newTable);
     }
 
     private String extractTableName(String qualifiedName) {
         // 从 "SCHEMA"."TABLE" 或 SCHEMA.TABLE 中提取最后的表名部分
         int lastDot = qualifiedName.lastIndexOf('.');
         return lastDot >= 0 ? qualifiedName.substring(lastDot + 1) : qualifiedName;
-    }
-
-    private String uppercaseQuoted(String identifier) {
-        if (identifier.startsWith("\"") && identifier.endsWith("\""))
-            return "\"" + identifier.substring(1, identifier.length() - 1).replace("\"\"", "\"").toUpperCase(Locale.ENGLISH) + "\"";
-        return identifier;
     }
 
     @Override

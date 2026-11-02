@@ -33,12 +33,9 @@ final class Db2Dialect extends AbstractDialect {
     @Override
     public String renameTableSql(String table, String newTable) {
         // DB2 使用 RENAME TABLE 语法，而非 ALTER TABLE ... RENAME TO
-        // 提取最后一个标识符并大写（DB2 未加引号的标识符存储为大写）
-        String last = lastIdentifier(newTable);
-        // 去除引号后大写，再重新加引号
-        if (last.startsWith("\"") && last.endsWith("\""))
-            last = "\"" + last.substring(1, last.length() - 1).replace("\"\"", "\"").toUpperCase(Locale.ENGLISH) + "\"";
-        return "RENAME TABLE " + table + " TO " + last;
+        // 只取新名的最后一段（DB2 的 TO 子句不接受 schema 限定名），
+        // 且保持与 quote() 一致的大小写：另行大写会与临时表实际建成的名字对不上。
+        return "RENAME TABLE " + table + " TO " + lastIdentifier(newTable);
     }
 
     private String lastIdentifier(String qualified) {

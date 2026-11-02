@@ -69,7 +69,7 @@ public class DialectTest {
                 registry.get(DatabaseType.GBASE).renameTableSql("`old`", "`new`"));
         assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.ORACLE).renameTableSql("\"old\"", "\"new\""));
-        assertEquals("RENAME TABLE \"old\" TO \"NEW\"",
+        assertEquals("RENAME TABLE \"old\" TO \"new\"",
                 registry.get(DatabaseType.DB2).renameTableSql("\"old\"", "\"new\""));
         assertEquals("EXEC sp_rename N'old', N'new'",
                 registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"old\"", "\"new\""));
@@ -195,11 +195,12 @@ public class DialectTest {
         DialectRegistry registry = new DialectRegistry();
         assertEquals("ALTER TABLE \"public\".\"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.POSTGRESQL).renameTableSql("\"public\".\"old\"", "\"public\".\"new\""));
-        assertEquals("RENAME TABLE \"DB2SCHEMA\".\"old\" TO \"NEW\"",
+        // DB2 / DM 的 rename 必须与 quote() 保持同一套大小写约定（quote() 不再改写大小写）
+        assertEquals("RENAME TABLE \"DB2SCHEMA\".\"old\" TO \"new\"",
                 registry.get(DatabaseType.DB2).renameTableSql("\"DB2SCHEMA\".\"old\"", "\"DB2SCHEMA\".\"new\""));
         assertEquals("ALTER TABLE \"OLD\" RENAME TO \"NEW\"",
                 registry.get(DatabaseType.ORACLE).renameTableSql("\"OLD\"", "\"NEW\""));
-        assertEquals("ALTER TABLE \"OLD\" RENAME TO \"NEW\"",
+        assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.DM).renameTableSql("\"old\"", "\"new\""));
         assertEquals("EXEC sp_rename N'dbo.old', N'new'",
                 registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"dbo\".\"old\"", "\"dbo\".\"new\""));
