@@ -2,6 +2,7 @@ package io.github.nameof.schemaloom.driver;
 
 import io.github.nameof.schemaloom.api.SchemaLoomException;
 import io.github.nameof.schemaloom.metadata.QualifiedTableName;
+import java.util.Locale;
 import java.util.Properties;
 
 /** Immutable connection and default database namespace information. */
@@ -52,7 +53,32 @@ public class DatabaseConnectionInfo {
     public String getPassword() { return password; }
     public String getDriverId() { return driverId; }
     public Properties getProperties() { Properties p = new Properties(); p.putAll(properties); return p; }
-    public QualifiedTableName table(String table) { return new QualifiedTableName(catalog, schema, table); }
+    /**
+     * 构造目标表限定名。DB2 / 达梦未加引号的标识符按大写存储，因此用户输入的表名在此规范化为大写，
+     * 保证迁移后的对象不带引号也能被查到。
+     * <p>
+     * 方言的 {@code quote()} 不再改写大小写（否则库里已存在的加引号小写对象会找不到），
+     * 规范化职责由这里承担：使用者若需要精确命中库里的大小写敏感对象，
+     * 用双引号包裹传入（{@code "\"mytable\""}）即可跳过规范化。
+     */
+    public QualifiedTableName table(String table) {
+        return new QualifiedTableName(catalog, schema, normalizeIdentifier(table));
+    }
+
+    private String normalizeIdentifier(String table) {
+        if (table == null) return null;
+        String trimmed = table.trim();
+        if (trimmed.length() >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+            String unquoted = trimmed.substring(1, trimmed.length() - 1).replace("\"\"", "\"");
+            if (!unquoted.trim().isEmpty()) return unquoted;
+        }
+        return uppercasesIdentifiers() ? trimmed.toUpperCase(Locale.ENGLISH) : trimmed;
+    }
+
+    /** DB2 / 达梦的未加引号标识符按大写存储。 */
+    private boolean uppercasesIdentifiers() {
+        return databaseType == DatabaseType.DB2 || databaseType == DatabaseType.DM;
+    }
 
     @Override public String toString() {
         return "DatabaseConnectionInfo{" + databaseType + " " + host + ":" + port + "/" + database + "}";
