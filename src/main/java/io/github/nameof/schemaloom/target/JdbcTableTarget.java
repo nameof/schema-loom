@@ -38,6 +38,8 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private boolean prepared;
     private boolean replaceMode;
     private boolean targetWriteFailed;
+    /** 实际写入的表（REPLACE 模式下是临时表）是否存在需要显式插入的自增列，决定是否需要 IDENTITY_INSERT。 */
+    private boolean writeTableHasIdentity;
     private QualifiedTableName writeTable;
     private boolean temporaryCreated;
     private long writtenRows;
@@ -109,6 +111,10 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                 validateAppend(existingTable, schema);
                 if (tableInfo != null) migrateIndexes(q, tableInfo, existingTable);
             }
+            // 自增列的显式插入取决于「实际写入的那张表」是否含自增列：
+            // APPEND 到已存在的目标表时以目标表为准（目标可能没有自增列），
+            // 目标表或临时表由源表结构新建时才以源表为准。
+            writeTableHasIdentity = hasIdentityInWriteColumns(exists ? existingTable : tableInfo);
             prepared = true;
             log.info("JDBC目标准备完成 runId={} table={} mode={} temporary={}", LoggingSupport.currentRunId(), table.getTable(), mode, replaceMode);
             List<EtlError> errors = new ArrayList<EtlError>(preparationErrors);
@@ -233,15 +239,25 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
      * 当写入字段包含自增列时，返回启用/禁用 identity insert 的 SQL；否则返回 null
      */
     private String identityInsertSql(boolean on) {
-        if (tableInfo == null) return null;
-        for (ColumnInfo column : tableInfo.getColumns()) {
+        if (!writeTableHasIdentity || writeSchema == null || writeTable == null) return null;
+        return on ? dialect.identityInsertOnSql(dialect.quote(writeTable))
+                : dialect.identityInsertOffSql(dialect.quote(writeTable));
+    }
+
+    /**
+     * 判定写入列集合中是否包含自增列。
+     *
+     * <p>自增列若被 {@link #writableSchema} 过滤掉（例如是生成列），就不存在显式插入，
+     * 此时开启 IDENTITY_INSERT 反而会在没有自增列的表上直接报错。</p>
+     */
+    private boolean hasIdentityInWriteColumns(TableInfo metadata) {
+        if (metadata == null || writeSchema == null) return false;
+        for (ColumnInfo column : metadata.getColumns()) {
             if (!column.isAutoIncremented()) continue;
             for (FieldSchema field : writeSchema.getFields())
-                if (field.getName().equalsIgnoreCase(column.getName()))
-                    return on ? dialect.identityInsertOnSql(dialect.quote(writeTable))
-                            : dialect.identityInsertOffSql(dialect.quote(writeTable));
+                if (field.getName().equalsIgnoreCase(column.getName())) return true;
         }
-        return null;
+        return false;
     }
 
     /**

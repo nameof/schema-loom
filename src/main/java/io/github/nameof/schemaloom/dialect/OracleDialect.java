@@ -45,7 +45,10 @@ final class OracleDialect extends AbstractDialect {
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {
         java.util.EnumMap<LogicalType, DatabaseTypeMapping> mappings = new java.util.EnumMap<LogicalType, DatabaseTypeMapping>(LogicalType.class);
-        mappings.put(LogicalType.BOOLEAN, DatabaseTypeMapping.supported("CHAR(1)"));
+        // Oracle 的 SQL 层没有原生 BOOLEAN 列类型（23ai 之前）。驱动会把布尔绑成原生布尔字面量，
+        // 落到 CHAR(1) 会被隐式转成 'TRUE'/'FALSE' 而报 ORA-12899（值太大）；
+        // NUMBER(1) 与驱动的布尔绑定、setString('1') 以及 getObject(Boolean.class) 读回均兼容。
+        mappings.put(LogicalType.BOOLEAN, DatabaseTypeMapping.supported("NUMBER(1)"));
         mappings.put(LogicalType.INT16, DatabaseTypeMapping.supported("NUMBER(5)"));
         mappings.put(LogicalType.INT32, DatabaseTypeMapping.supported("NUMBER(10)"));
         mappings.put(LogicalType.INT64, DatabaseTypeMapping.supported("NUMBER(19)"));

@@ -345,6 +345,20 @@ public class DialectTest {
     }
 
     @Test
+    public void mapsOracleBooleanToNumericColumn() {
+        DialectRegistry registry = new DialectRegistry();
+        FieldSchema flag = new FieldSchema("flag", LogicalType.BOOLEAN, true, null, null, null);
+        // Oracle 的 SQL 层没有原生 BOOLEAN 列类型。驱动会把布尔绑成原生布尔字面量，
+        // 落到 CHAR(1) 会被隐式转成 'TRUE'/'FALSE' 并报 ORA-12899（值太大），NUMBER(1) 才兼容。
+        assertEquals("NUMBER(1)", registry.get(DatabaseType.ORACLE).mapping(LogicalType.BOOLEAN).getDdlType(flag));
+        // 其余方言保持各自的原生布尔 / 位类型
+        assertEquals("BOOLEAN", registry.get(DatabaseType.POSTGRESQL).mapping(LogicalType.BOOLEAN).getDdlType(flag));
+        assertEquals("BOOLEAN", registry.get(DatabaseType.DB2).mapping(LogicalType.BOOLEAN).getDdlType(flag));
+        assertEquals("BIT", registry.get(DatabaseType.SQL_SERVER).mapping(LogicalType.BOOLEAN).getDdlType(flag));
+        assertEquals("TINYINT", registry.get(DatabaseType.GBASE).mapping(LogicalType.BOOLEAN).getDdlType(flag));
+    }
+
+    @Test
     public void attachesSqlServerCommentsToTargetSchemaAndTable() {
         ColumnInfo column = new ColumnInfo("name", "VARCHAR", "owner's name", LogicalType.STRING,
                 Types.VARCHAR, 1, true, 30, null, null);
