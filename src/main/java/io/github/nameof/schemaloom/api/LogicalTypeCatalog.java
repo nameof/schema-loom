@@ -95,7 +95,7 @@ public final class LogicalTypeCatalog {
 
     private static LogicalTypeDefinition time() {
         return new LogicalTypeDefinition(LogicalType.TIME, LocalTime.class, text(LocalTime::parse), new LogicalTypeDefinition.ExcelCodec() {
-            public Object decode(Object raw) { return LocalTime.parse(String.valueOf(raw)); }
+            public Object decode(Object raw) { return excelTime(raw); }
             public Object encode(Object value) { return value.toString(); }
         }, jdbc(Types.TIME, (rs, i) -> { Time value = rs.getTime(i); return value == null ? null : value.toLocalTime(); },
                 (ps, i, v) -> ps.setTime(i, Time.valueOf((LocalTime) v))));
@@ -171,6 +171,22 @@ public final class LogicalTypeCatalog {
         if (type == Float.class) return raw instanceof Number ? ((Number) raw).floatValue() : Float.valueOf(text);
         if (type == Double.class) return raw instanceof Number ? ((Number) raw).doubleValue() : Double.valueOf(text);
         return text;
+    }
+
+    /**
+     * Excel 时间单元格可能返回 Date、数字序列号（如 0.5 表示 12:00）或数字字符串。
+     * 仅纯时间文本（如 "12:00:00"）才直接解析，其余按 Excel serial 还原，
+     * 与日期列的 {@link #excelDate(Object)} 兜底保持对称。
+     * <p>
+     * 序列号这里走 {@code DateUtil.getLocalDateTime}，不能复用 {@link #excelDate(Object)}：
+     * 后者经 {@code getJavaDate} 生成 Date 再按默认时区还原，在 1899 年这个基准年份上
+     * 会命中中国时区 1901 年前的 LMT 偏移（+08:05:43），把 12:00 变成 12:05:43。
+     */
+    private static LocalTime excelTime(Object raw) {
+        if (raw instanceof java.util.Date) return excelDate(raw).toLocalTime();
+        String text = String.valueOf(raw);
+        if (!text.matches("[-+]?\\d+(\\.\\d+)?")) return LocalTime.parse(text);
+        return DateUtil.getLocalDateTime(Double.parseDouble(text)).toLocalTime();
     }
 
     private static LocalDateTime excelDate(Object raw) {

@@ -3,6 +3,7 @@ package io.github.nameof.schemaloom.api;
 import org.junit.Test;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.Arrays;
 import static org.junit.Assert.*;
 
@@ -22,6 +23,16 @@ public class LogicalTypeCatalogTest {
                 FieldSchema.of("amount", LogicalType.DECIMAL)));
         DataRecord record = new DataRecord(schema, Arrays.asList(LocalDate.of(2026, 8, 13), new BigDecimal("1.20")));
         assertEquals(LocalDate.of(2026, 8, 13), record.get(0));
+    }
+
+    @Test public void decodesExcelTimeFromSerialNumber() {
+        // Excel 时间单元格常以序列号返回（0.5 = 12:00），此前只有日期列有兜底，时间列会解析失败
+        LogicalTypeDefinition time = LogicalTypeCatalog.get(LogicalType.TIME);
+        assertEquals(LocalTime.of(12, 0), time.decodeExcel(0.5d));
+        assertEquals(LocalTime.of(12, 0), time.decodeExcel("0.5"));
+        assertEquals(LocalTime.of(6, 0), time.decodeExcel(0.25d));
+        // 纯时间文本仍按原样解析
+        assertEquals(LocalTime.of(12, 0), time.decodeExcel("12:00:00"));
     }
 
     @Test(expected = IllegalArgumentException.class)
