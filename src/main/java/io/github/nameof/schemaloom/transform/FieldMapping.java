@@ -46,7 +46,8 @@ public final class FieldMapping {
         List<ColumnInfo> mapped = new ArrayList<ColumnInfo>();
         for (FieldMapping mapping : ms) {
             ColumnInfo column = columns.get(mapping.source.toLowerCase(Locale.ENGLISH));
-            if (column == null) continue;
+            if (column == null)
+                throw new IllegalArgumentException("源表中不存在映射字段: " + mapping.source);
             FieldSchema mappedField = new FieldSchema(mapping.target, column.getLogicalType(), column.isNullable(),
                     column.getLength(), column.getPrecision(), column.getScale());
             mapped.add(new ColumnInfo(mappedField, column.getTypeName(), column.getRemarks(),

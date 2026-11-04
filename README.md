@@ -50,9 +50,11 @@ JDBC Source 与 Target 在内部通过 Spring JDBC 执行适配层统一管理�
 
 数据库方言当前覆盖 MySQL、MariaDB、Oracle、SQL Server、PostgreSQL、DB2、DM（达梦）、KingbaseES（人大金仓）和 GBase 8a。PostgreSQL 未显式指定 Schema 时默认使用 `public`。DB2 未显式指定 Schema 时回退到数据库名。数据库目标支持 `APPEND` 与 `REPLACE`，目标表不存在时会依据输入 Schema 建表。
 
+注释迁移的能力各库不同：Oracle、PostgreSQL、DB2、DM、KingbaseES 使用 `COMMENT ON TABLE/COLUMN`，表和列注释都会迁移；SQL Server 通过扩展属性迁移。**MySQL、MariaDB 与 GBase 8a 只迁移表注释，列注释不迁移** —— MySQL 系没有无损的列注释 `ALTER` 语法，列注释仍会被元数据采集，但不会写回目标库。
+
 ### 类型化 Schema 与转换
 
-内置逻辑类型包括 `BOOLEAN`、`INT16`、`INT32`、`INT64`、`DECIMAL`、`FLOAT32`、`FLOAT64`、`STRING`、`DATE`、`TIME`、`TIMESTAMP` 和 `BINARY`。金额等精确数值使用 `BigDecimal`，不会默认降级为 `Double`。
+内置逻辑类型包括 `BOOLEAN`、`INT16`、`INT32`、`INT64`、`DECIMAL`、`FLOAT32`、`FLOAT64`、`STRING`、`DATE`、`TIME`、`TIMESTAMP`、`BINARY`、`OFFSET_TIME` 和 `OFFSET_TIMESTAMP`。金额等精确数值使用 `BigDecimal`，不会默认降级为 `Double`。`OFFSET_TIME` / `OFFSET_TIMESTAMP` 表示带时区的时间与时间戳，目标方言不支持带时区类型时会降级并输出告警，不会静默丢失时区信息。
 
 - `Transformer` 可保留、改写或丢弃记录。
 - `FieldMapping` 支持字段选择、重命名和顺序调整。
@@ -202,8 +204,8 @@ Source source = new JdbcQuerySource(
 
 ```java
 JdbcTableSource tableSource = new JdbcTableSource(sourceDatabase, "source_table");
-List<DataRecord> preview = tableSource.read();       // 默认最多 100 行
-List<DataRecord> sample = tableSource.read(200);      // 允许 1 到 300 行
+List<DataRecord> preview = tableSource.preview(100);   // 允许 1 到 300 行
+List<DataRecord> sample = tableSource.preview(200);    // 上限为 MAX_PREVIEW_ROWS（300）
 ```
 
 预览结果不保证稳定顺序；为避免读取 BLOB/BINARY 大字段，二进制列在预览结果中保留但值为 `null`。`read(BatchConsumer)` 仍然读取全表，`count()` 仍然返回全表总行数。预览限制通过 JDBC `setMaxRows` 执行，不提供分页或排序语义。

@@ -14,6 +14,7 @@ import io.github.nameof.schemaloom.source.MemorySource;
 import io.github.nameof.schemaloom.target.JdbcTableTarget;
 import io.github.nameof.schemaloom.target.MemoryTarget;
 import io.github.nameof.schemaloom.transform.FieldMapping;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.*;
@@ -179,6 +180,7 @@ public class EtlTaskTest {
 
 
     @Test
+    @Ignore
     public void localTest() throws Exception {
         DatabaseConnectionInfo sourceConfig = new DatabaseConnectionInfo(
                 DatabaseType.MYSQL, "localhost", 3306, "hxl", "root", "root");

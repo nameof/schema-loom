@@ -5,7 +5,7 @@
 **更新规则**：每解决一条，把该条从「待办」移到文末「已解决归档」并标注解决日期；部分解决的留在
 「部分解决」区并写明残余问题。待办区里剩下的，一律是还没动的。
 
-**最后更新**：2026-10-29
+**最后更新**：2026-11-03
 
 ---
 
@@ -17,10 +17,10 @@
 | B 各数据库特有分支 | 0 | 1 | 7 | 10（含 B6 / B7 已验证非缺陷） |
 | C 类型系统与编解码 | 4 | 0 | 2 | 6 |
 | D 性能与资源 | 6 | 0 | 0 | 6 |
-| E 设计与耦合 | 6 | 0 | 0 | 6 |
-| F 元数据与文档不一致 | 4 | 0 | 0 | 4 |
+| E 设计与耦合 | 5 | 0 | 1 | 6 |
+| F 元数据与文档不一致 | 2 | 0 | 2 | 4 |
 | G 测试与工具（新增） | 2 | 0 | 0 | 2 |
-| **合计** | **26** | **1** | **9** | **38** |
+| **合计** | **23** | **1** | **12** | **38** |
 
 **建议处理顺序**
 
@@ -82,7 +82,6 @@
 | E1 | 全局 | `loader → provider → connection → source/target → task` 五层套娃（README 自己的「优化 TODO」第一条）。同一连接被 `SingleConnectionDataSource` 包了 2-3 次 | 合并 provider/connection 层，DataSource 只包装一次 | 推断 |
 | E2 | `DialectRegistry` 构造 | 硬编码 `new MySqlDialect()` 等 9 个方言，**没有 SPI / 注册入口** → 第三方加方言只能改源码 | 改 SPI（`META-INF/services`）+ 保留内置默认 | 推断 |
 | E3 | `MetadataQuery#fromConnectionInfo` | 里面写了 MySQL/MariaDB/GBase/DB2/Kingbase 各自的 catalog-schema 语义，**但主流程（`JdbcTableSource`/`JdbcTableTarget`）根本没调它**，直接 `new MetadataQuery(...)`。两套语义并存，DB2「schema 回退到数据库名」在主路径上不生效 | 主流程统一走 `fromConnectionInfo`，或删除死代码 | 推断 |
-| E4 | `FieldMapping#mapSchema` vs `#mapTableInfo` | 同一个 mapping 列表，`mapSchema` 遇到不存在的源字段**抛异常**，`mapTableInfo` 却 **`continue` 静默跳过** → 两边列数不一致，`DataRecord` 构造时报 "value count differs from schema" | 统一为显式失败，或统一跳过，两者取一 | 推断 |
 | E5 | `EtlTask` + REPLACE 模式 | `ISOLATE_AND_CONTINUE` 降级逐行后，只要有 1 行坏数据 → `write()` 抛错 → `targetWriteFailed=true` → close 删临时表 → **整表迁移作废**。两个特性语义上互斥，当前没有提示 | REPLACE 模式下禁用 `ISOLATE_AND_CONTINUE`，或文档明示互斥 | 推断 |
 | E6 | `DatabaseMetadataService#listTables` | 表名转正则用 `replace("%",".*").replace("_",".")`，**没有 `Pattern.quote`**；同文件 `sqlPattern()` 却做了 quote → 两套标准，表名含 `.` `(` 时误匹配或 `PatternSyntaxException` | 用 `Pattern.quote` 转义字面部分 | 推断 |
 
@@ -91,9 +90,7 @@
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
 | F1 | `DatabaseMetadataService#catalog` | `query.getCatalog()==null` 时 **schemaPattern 直接为 null，不下推**。Oracle/DB2 场景 catalog 通常为空 → 全库扫元数据（慢且大库易超时），靠下游 `matches()` 硬过滤 | catalog 为空时按方言把 database 作为 catalogPattern 下推 | 推断 |
-| F2 | README「数据库到数据库」章节 | 文档写 `tableSource.read()` / `read(200)`，**实际方法名是 `preview(int)`**，`read(BatchConsumer)` 是另一个签名 → 文档跑不通 | 改为 `preview(int)` / `read(BatchConsumer)` | 实证 |
 | F3 | README catalog/schema 表 | 说「DB2 / DM 未指定 Schema 时回退到数据库名」，但 `DatabaseConnectionInfo` 只对 `POSTGRESQL`/`KINGBASE` 默认 `public`，DB2/DM 没实现 | 要么实现回退，要么改文档 | 实证 |
-| F4 | README 特性清单 | 逻辑类型只列到 `BINARY`，实际还有 `OFFSET_TIME`/`OFFSET_TIMESTAMP`；且 MySQL 列注释明确不迁移，文档没写清 | 补齐类型清单 + 说明 MySQL 列注释不迁移 | 实证 |
 
 ### G 组：测试与工具（新增）
 
@@ -125,6 +122,9 @@
 | C1 | 方言降级了 DDL 但 JDBC 绑定没降级，DB2 报「无法识别的 JDBC 类型 2013」（ERRORCODE=-4228） | 绑定跟随降级：`DatabaseTypeMapping#degradesTo` + `JdbcValueCodec#write` 接受方言并按降级目标转换值与类型码；`JdbcTableTarget#nullSqlType` 让 null 绑定同样跟随 | 2026-10-28（DB2 实机验证） |
 | B9 | `IDENTITY_INSERT` 的判定依据是**源表**而非实际写入的目标表。源表有自增列、目标表没有时，APPEND 仍执行 `SET IDENTITY_INSERT`，整个批次失败 | 新增 `writeTableHasIdentity`：由「实际写入的那张表」判定（APPEND 到已存在目标表时用目标表元数据；目标表或临时表由源表新建时才用源表）。判定同时检查该自增列是否真的在写入列集合中 | 2026-10-29（达梦实机验证） |
 | C2 | `OracleDialect` 把 BOOLEAN 建成 `CHAR(1)`，而驱动把布尔绑成原生布尔字面量 → 隐式转成 `'TRUE'/'FALSE'` 后 `ORA-12899`（值太大），写入即失败 | DDL 改为 `NUMBER(1)`（Hibernate 在 Oracle 上的经典布尔映射）。实测写入 true/false/null 分别存 `1/0/NULL`，`getObject(Boolean.class)` 读回 `true/false/null` 全部正常 | 2026-10-29（Oracle 23.26 实机验证） |
+| E4 | `FieldMapping#mapTableInfo` 对源表里不存在的映射字段 `continue` 静默跳过，而 `mapSchema` 抛异常 → 目标 Schema 少列，`mapRecord` 仍按完整映射列表取值，最终在 `DataRecord` 构造时报 "value count differs from schema"，错误点离真正原因很远 | 统一为显式失败：`mapTableInfo` 列缺失改抛 `IllegalArgumentException("源表中不存在映射字段: <name>")`，与 `mapSchema` 以及本方法内索引/主键/外键/约束的处理一致。`mapRecord` 未动（按评审意见保持改动最小）。新增单测 `rejectsMappingToMissingSourceColumn` | 2026-11-03 |
+| F2 | README「数据库到数据库」章节写 `tableSource.read()` / `read(200)`，**实际方法名是 `preview(int)`**，`read(BatchConsumer)` 是另一个签名 → 文档跑不通 | 改为 `preview(100)` / `preview(200)`，并注明行数上限为 `MAX_PREVIEW_ROWS`（300）；`read(BatchConsumer)` 读全表的说明保持不变 | 2026-11-03 |
+| F4 | README 逻辑类型清单只列到 `BINARY`，漏了 `OFFSET_TIME` / `OFFSET_TIMESTAMP`；且 MySQL 列注释明确不迁移，文档没写清 | 清单补齐两种带时区类型并说明降级时会告警（B8）；方言章节新增一段说明各库注释迁移能力差异 —— MySQL / MariaDB / GBase 8a 只迁表注释，列注释仅采集不写回 | 2026-11-03 |
 
 ### 已验证非缺陷（实机推翻原判断）
 
