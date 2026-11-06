@@ -96,7 +96,7 @@ public class JdbcTableTargetContractTest {
         JdbcTableTarget target = new JdbcTableTarget(new ConnectionProvider() {
             public Connection getConnection() { return bindingFailureConnection; }
             public void close() { try { connection.close(); } catch (SQLException ignored) { } }
-        }, new QualifiedTableName(null, null, "ORDERS"), DatabaseType.MYSQL);
+        }, null, new QualifiedTableName(null, null, "ORDERS"), DatabaseType.MYSQL);
         RecordSchema writeSchema = new RecordSchema(Collections.singletonList(
                 new FieldSchema("id", LogicalType.INT32, false, null, null, null)));
         target.prepare(SchemaDescriptor.of(writeSchema), TargetMode.APPEND);
@@ -137,7 +137,7 @@ public class JdbcTableTargetContractTest {
         return new JdbcTableTarget(new ConnectionProvider() {
             public Connection getConnection() { return connection; }
             public void close() { try { connection.close(); } catch (SQLException ignored) { } }
-        }, new QualifiedTableName(null, null, "ORDERS"), DatabaseType.MYSQL);
+        }, null, new QualifiedTableName(null, null, "ORDERS"), DatabaseType.MYSQL);
     }
 
     private SchemaDescriptor schema(FieldSchema... fields) {

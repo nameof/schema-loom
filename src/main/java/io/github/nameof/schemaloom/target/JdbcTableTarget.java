@@ -27,6 +27,8 @@ import java.util.*;
 public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private static final Logger log = LoggerFactory.getLogger(JdbcTableTarget.class);
     private final ConnectionProvider provider;
+    /** 连接配置，用于按方言推导元数据查询的命名空间范围（见 MetadataQuery#fromConnectionInfo）。 */
+    private final DatabaseConnectionInfo connectionInfo;
     private final QualifiedTableName table;
     private final DatabaseDialect dialect;
     private final MetadataErrorPolicy metadataErrorPolicy;
@@ -44,12 +46,13 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private boolean temporaryCreated;
     private long writtenRows;
 
-    JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type) {
-        this(p, table, type, MetadataErrorPolicy.IGNORE);
+    JdbcTableTarget(ConnectionProvider p, DatabaseConnectionInfo info, QualifiedTableName table, DatabaseType type) {
+        this(p, info, table, type, MetadataErrorPolicy.IGNORE);
     }
 
-    JdbcTableTarget(ConnectionProvider p, QualifiedTableName table, DatabaseType type, MetadataErrorPolicy policy) {
+    JdbcTableTarget(ConnectionProvider p, DatabaseConnectionInfo info, QualifiedTableName table, DatabaseType type, MetadataErrorPolicy policy) {
         provider = p;
+        connectionInfo = info;
         this.table = table;
         this.dialect = new DialectRegistry().get(type);
         this.metadataErrorPolicy = policy == null ? MetadataErrorPolicy.IGNORE : policy;
@@ -61,11 +64,11 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
-        this(openValidated(info, table, loader), info.table(table), info.getDatabaseType());
+        this(openValidated(info, table, loader), info, info.table(table), info.getDatabaseType());
     }
 
     public JdbcTableTarget(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader, MetadataErrorPolicy policy) {
-        this(openValidated(info, table, loader), info.table(table), info.getDatabaseType(), policy);
+        this(openValidated(info, table, loader), info, info.table(table), info.getDatabaseType(), policy);
     }
 
     private static ConnectionProvider openValidated(DatabaseConnectionInfo info, String table, JdbcDriverLoader loader) {
@@ -86,7 +89,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         validateCapabilities(schema);
         try {
             DatabaseMetadataService metadata = new DatabaseMetadataService();
-            List<TableInfo> tables = metadata.listTables(provider, new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
+            List<TableInfo> tables = metadata.listTables(provider, MetadataQuery.fromConnectionInfo(connectionInfo, table));
             TableInfo existingTable = tables.isEmpty() ? null : tables.get(0);
             boolean exists = existingTable != null;
             if (exists && existingTable.isView())
@@ -132,7 +135,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
 
     private void dropTemporaryIfPresent() {
         List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
-                new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable() + "_tmp"));
+                MetadataQuery.fromConnectionInfo(connectionInfo, temporaryTable()));
         if (!tables.isEmpty()) execution.execute("drop temporary target table", dialect.dropTableSql(dialect.quote(writeTable)));
     }
 
@@ -311,7 +314,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                         dropTemporaryIfPresent();
                     } else {
                         List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
-                                new MetadataQuery(table.getCatalog(), table.getSchema(), table.getTable()));
+                                MetadataQuery.fromConnectionInfo(connectionInfo, table));
                         if (!tables.isEmpty())
                             execution.execute("drop replaced target table", dialect.dropTableSql(dialect.quote(table)));
                         execution.execute("rename replacement target table", dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));

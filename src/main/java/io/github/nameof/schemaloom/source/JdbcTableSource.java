@@ -125,7 +125,8 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
 
     private synchronized TableInfo ensureTableInfo() {
         if (tableInfo == null)
-            tableInfo = applyNullabilityTableInfo(new DatabaseMetadataService().getTable(ensureProvider(), table));
+            tableInfo = applyNullabilityTableInfo(new DatabaseMetadataService().getTable(ensureProvider(),
+                    MetadataQuery.fromConnectionInfo(info, table)));
         return tableInfo;
     }
 

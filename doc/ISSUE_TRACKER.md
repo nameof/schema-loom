@@ -5,7 +5,7 @@
 **更新规则**：每解决一条，把该条从「待办」移到文末「已解决归档」并标注解决日期；部分解决的留在
 「部分解决」区并写明残余问题。待办区里剩下的，一律是还没动的。
 
-**最后更新**：2026-11-03
+**最后更新**：2026-11-06
 
 ---
 
@@ -15,19 +15,18 @@
 |---|---|---|---|---|
 | A 数据丢失 / 状态误报 | 4 | 0 | 0 | 4 |
 | B 各数据库特有分支 | 0 | 1 | 7 | 10（含 B6 / B7 已验证非缺陷） |
-| C 类型系统与编解码 | 4 | 0 | 2 | 6 |
+| C 类型系统与编解码 | 3 | 0 | 3 | 6 |
 | D 性能与资源 | 6 | 0 | 0 | 6 |
-| E 设计与耦合 | 5 | 0 | 1 | 6 |
+| E 设计与耦合 | 4 | 0 | 2 | 6 |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 4 |
-| G 测试与工具（新增） | 2 | 0 | 0 | 2 |
-| **合计** | **23** | **1** | **12** | **38** |
+| G 测试与工具（新增） | 1 | 0 | 1 | 2 |
+| **合计** | **20** | **1** | **15** | **38** |
 
 **建议处理顺序**
 
 1. **A 组**（会真丢数据，无论概率高低都不可接受；A3 已被实机坐实）
-2. **C3-C6 / G2**（正确性）
+2. **C3 / C5 / C6 / G2**（正确性）
 3. **D / E / F**（性能、重构、文档一致性，可批量做）
-5. **D / E / F**（性能、重构、文档一致性，可批量做）
 
 **依据列含义**
 
@@ -60,7 +59,6 @@
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
 | C3 | `JdbcTypes#logical` | `Types.FLOAT → FLOAT32`。**SQL Server 的 `FLOAT` 是 53 位双精度**，被降级成单精度 → 精度丢失 | FLOAT 按目标方言区分；SQL Server 应映射为 FLOAT64 | 推断 |
-| C4 | `LogicalTypeCatalog#time` | Excel decode 只写 `LocalTime.parse(String.valueOf(raw))`。日期列有 `excelDate()` 兜底，**时间列没有** → Excel 时间单元格（序列号 0.5）必然解析失败 | 时间列补序列号兜底，与日期列对称 | 推断 |
 | C5 | `LogicalTypeCatalog#nullable` | 用 `rs.getObject(index, Class)`（JDBC 4.1）。部分国产库老驱动未实现 → `AbstractMethodError` | 改用 `getObject(int)` + 本地转换，或捕获 `AbstractMethodError` 后降级 | 推断 |
 | C6 | `JdbcTableTarget#setValue` | null 值用**源列**的 `jdbcType` 调 `setNull`。跨库时源类型码目标库可能不支持 | null 绑定改用目标类型，或对不支持的类型码降级为 `setNull(Types.NULL)` | 推断 |
 
@@ -81,7 +79,6 @@
 |---|---|---|---|---|
 | E1 | 全局 | `loader → provider → connection → source/target → task` 五层套娃（README 自己的「优化 TODO」第一条）。同一连接被 `SingleConnectionDataSource` 包了 2-3 次 | 合并 provider/connection 层，DataSource 只包装一次 | 推断 |
 | E2 | `DialectRegistry` 构造 | 硬编码 `new MySqlDialect()` 等 9 个方言，**没有 SPI / 注册入口** → 第三方加方言只能改源码 | 改 SPI（`META-INF/services`）+ 保留内置默认 | 推断 |
-| E3 | `MetadataQuery#fromConnectionInfo` | 里面写了 MySQL/MariaDB/GBase/DB2/Kingbase 各自的 catalog-schema 语义，**但主流程（`JdbcTableSource`/`JdbcTableTarget`）根本没调它**，直接 `new MetadataQuery(...)`。两套语义并存，DB2「schema 回退到数据库名」在主路径上不生效 | 主流程统一走 `fromConnectionInfo`，或删除死代码 | 推断 |
 | E5 | `EtlTask` + REPLACE 模式 | `ISOLATE_AND_CONTINUE` 降级逐行后，只要有 1 行坏数据 → `write()` 抛错 → `targetWriteFailed=true` → close 删临时表 → **整表迁移作废**。两个特性语义上互斥，当前没有提示 | REPLACE 模式下禁用 `ISOLATE_AND_CONTINUE`，或文档明示互斥 | 推断 |
 | E6 | `DatabaseMetadataService#listTables` | 表名转正则用 `replace("%",".*").replace("_",".")`，**没有 `Pattern.quote`**；同文件 `sqlPattern()` 却做了 quote → 两套标准，表名含 `.` `(` 时误匹配或 `PatternSyntaxException` | 用 `Pattern.quote` 转义字面部分 | 推断 |
 
@@ -96,7 +93,6 @@
 
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
-| G1 | `EtlTaskTest#localTest` | 连 `localhost:3306` 真实 MySQL（库 `hxl`/`hxl2`）。类名是 `EtlTaskTest`，**逃过了 surefire 的 `**/*IntegrationTest.java` 排除规则** → 本机没 MySQL 时 `mvn test` 永远挂一个假红灯，掩盖真实失败 | 改名为 `*IntegrationTest` 或加 `@Ignore` / `Assume` | 实证 |
 | G2 | 各 `Dialect#mappings` 的 DECIMAL 项 | 只分别 clamp 了 precision 和 scale，**没有约束 `scale <= precision`** → 仍可生成 `DECIMAL(5,30)` 这类非法 DDL | `scale = min(scale, precision)` | 推断 |
 
 ---
@@ -125,6 +121,9 @@
 | E4 | `FieldMapping#mapTableInfo` 对源表里不存在的映射字段 `continue` 静默跳过，而 `mapSchema` 抛异常 → 目标 Schema 少列，`mapRecord` 仍按完整映射列表取值，最终在 `DataRecord` 构造时报 "value count differs from schema"，错误点离真正原因很远 | 统一为显式失败：`mapTableInfo` 列缺失改抛 `IllegalArgumentException("源表中不存在映射字段: <name>")`，与 `mapSchema` 以及本方法内索引/主键/外键/约束的处理一致。`mapRecord` 未动（按评审意见保持改动最小）。新增单测 `rejectsMappingToMissingSourceColumn` | 2026-11-03 |
 | F2 | README「数据库到数据库」章节写 `tableSource.read()` / `read(200)`，**实际方法名是 `preview(int)`**，`read(BatchConsumer)` 是另一个签名 → 文档跑不通 | 改为 `preview(100)` / `preview(200)`，并注明行数上限为 `MAX_PREVIEW_ROWS`（300）；`read(BatchConsumer)` 读全表的说明保持不变 | 2026-11-03 |
 | F4 | README 逻辑类型清单只列到 `BINARY`，漏了 `OFFSET_TIME` / `OFFSET_TIMESTAMP`；且 MySQL 列注释明确不迁移，文档没写清 | 清单补齐两种带时区类型并说明降级时会告警（B8）；方言章节新增一段说明各库注释迁移能力差异 —— MySQL / MariaDB / GBase 8a 只迁表注释，列注释仅采集不写回 | 2026-11-03 |
+| C4 | `LogicalTypeCatalog#time` 的 Excel decode 只做 `LocalTime.parse(String.valueOf(raw))`，日期列有 `excelDate()` 兜底而时间列没有 → Excel 时间单元格（序列号 0.5）解析必失败 | 新增 `excelTime(raw)`：Date 走 `excelDate`，序列号与数字字符串走 `DateUtil.getLocalDateTime(double)`，纯时间文本仍直接 `LocalTime.parse`。**不能复用 `excelDate`** —— 它经 `getJavaDate` 生成 Date 再按默认时区还原，在 1899 这个基准年份会命中中国时区 1901 年前的 LMT 偏移（+08:05:43），把 12:00 变成 12:05:43（单测实测）。新增用例 `decodesExcelTimeFromSerialNumber` | 2026-11-04 |
+| E3 | `MetadataQuery#fromConnectionInfo` 与主流程「按名称精确查询」两套命名空间语义并存，它实际只有测试在用；主流程 MySQL 系未把 database 下推为 catalog，元数据退化为全库扫 | 主流程统一走 `fromConnectionInfo`：新增 `fromConnectionInfo(info, QualifiedTableName)`（表名自带 catalog/schema 优先、其余回退方言默认值，info 为 null 时不推导），`JdbcTableSource` / `JdbcTableTarget`（3 处）/ `JdbcViewMigrator`（2 处）全部改用它；`DatabaseMetadataService` 增补 `getTable(provider, MetadataQuery)`。**同时收紧兜底**：删掉「catalog 与 schema 都为空时把 database 当 catalog」这条分支 —— Oracle 的 database 是服务名、达梦是实例名，下推后命名空间过滤会剔除全部 schema，表直接查不到 | 2026-11-04 |
+| G1 | `EtlTaskTest#localTest` 连真实 MySQL，类名逃过了 surefire 的 `*IntegrationTest` 排除规则，本机没库时 `mvn test` 永远挂一个假红灯 | 给方法加 `@Ignore`（采用台账给出的第二种修法）。注意：**未改名为 `*IntegrationTest`**，用例仍留在 `EtlTaskTest` 里，只是不再执行 | 2026-11-04 |
 
 ### 已验证非缺陷（实机推翻原判断）
 

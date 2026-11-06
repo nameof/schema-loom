@@ -61,11 +61,12 @@ final class JdbcViewMigrator {
             targetProvider = JdbcConnectionFactory.open(target, activeLoader);
             QualifiedTableName sourceName = source.table(sourceView);
             QualifiedTableName targetName = target.table(targetView);
-            TableInfo sourceInfo = new DatabaseMetadataService().getTable(sourceProvider, sourceName);
+            TableInfo sourceInfo = new DatabaseMetadataService().getTable(sourceProvider,
+                    MetadataQuery.fromConnectionInfo(source, sourceName));
             if (!sourceInfo.isView()) throw new SchemaLoomException("source object is not a view: " + sourceView);
 
             DatabaseMetadataService metadata = new DatabaseMetadataService();
-            if (!metadata.listTables(targetProvider, new MetadataQuery(targetName.getCatalog(), targetName.getSchema(), targetName.getTable())).isEmpty())
+            if (!metadata.listTables(targetProvider, MetadataQuery.fromConnectionInfo(target, targetName)).isEmpty())
                 throw new SchemaLoomException("target object already exists: " + targetView);
 
             DatabaseDialect dialect = new DialectRegistry().get(source.getDatabaseType());

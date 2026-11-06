@@ -77,13 +77,15 @@ public class MetadataQueryTest {
     }
 
     @Test
-    public void dmDefaultsToDatabaseAsCatalog() {
+    public void dmWithoutSchemaDoesNotPushDatabaseAsCatalog() {
         DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.DM, "localhost", 5236,
                 "DAMENG", "user", "password");
 
         MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
 
-        assertEquals("DAMENG", query.getCatalog());
+        // 达梦的 database 是实例名、schema 是模式名，把 database 当 catalog 下推会让
+        // 命名空间过滤剔除全部 schema，因此未显式配置时不做任何限制
+        assertNull(query.getCatalog());
         assertNull(query.getSchema());
         assertEquals("%", query.getTablePattern());
     }
@@ -139,5 +141,32 @@ public class MetadataQueryTest {
         assertEquals("gbase", query.getCatalog());
         assertNull(query.getSchema());
         assertEquals("sl_%", query.getTablePattern());
+    }
+
+    @Test
+    public void tableScopeFallsBackToConnectionDefaults() {
+        // 表名未带 catalog/schema 时，按方言回退到连接默认值（MySQL 系下推 database 为 catalog）
+        DatabaseConnectionInfo mySql = new DatabaseConnectionInfo(DatabaseType.MYSQL, "localhost", 3306,
+                "dbmask", "user", "password");
+        MetadataQuery mysqlQuery = MetadataQuery.fromConnectionInfo(mySql, new QualifiedTableName(null, null, "orders"));
+        assertEquals("dbmask", mysqlQuery.getCatalog());
+        assertNull(mysqlQuery.getSchema());
+        assertEquals("orders", mysqlQuery.getTablePattern());
+
+        // PostgreSQL 回退到 public
+        DatabaseConnectionInfo pg = new DatabaseConnectionInfo(DatabaseType.POSTGRESQL, "localhost", 5432,
+                "db", "user", "password");
+        MetadataQuery pgQuery = MetadataQuery.fromConnectionInfo(pg, new QualifiedTableName(null, null, "orders"));
+        assertEquals("public", pgQuery.getSchema());
+    }
+
+    @Test
+    public void tableScopePrefersExplicitCatalogAndSchema() {
+        DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.MYSQL, "localhost", 3306,
+                "dbmask", "user", "password");
+        MetadataQuery query = MetadataQuery.fromConnectionInfo(info, new QualifiedTableName("other", "s1", "orders"));
+        assertEquals("other", query.getCatalog());
+        assertEquals("s1", query.getSchema());
+        assertEquals("orders", query.getTablePattern());
     }
 }

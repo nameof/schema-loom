@@ -80,9 +80,17 @@ public final class DatabaseMetadataService {
 
     /** 读取指定表的完整元数据，表不存在时抛出异常。 */
     public TableInfo getTable(ConnectionProvider provider, QualifiedTableName name) {
-        for (TableInfo table : listTables(provider, new MetadataQuery(name.getCatalog(), name.getSchema(), name.getTable())))
-            if (table.getName().getTable().equalsIgnoreCase(name.getTable())) return table;
-        throw new SchemaLoomException("table not found: " + name.getTable());
+        return getTable(provider, new MetadataQuery(name.getCatalog(), name.getSchema(), name.getTable()));
+    }
+
+    /**
+     * 按已确定的查询范围读取指定表的完整元数据，表不存在时抛出异常。
+     * 主流程传入 {@code MetadataQuery.fromConnectionInfo} 的结果，以统一命名空间语义。
+     */
+    public TableInfo getTable(ConnectionProvider provider, MetadataQuery query) {
+        for (TableInfo table : listTables(provider, query))
+            if (table.getName().getTable().equalsIgnoreCase(query.getTablePattern())) return table;
+        throw new SchemaLoomException("table not found: " + query.getTablePattern());
     }
 
     /** 读取单表系统统计；不执行 COUNT(*)，行数可能是数据库估算值。 */
