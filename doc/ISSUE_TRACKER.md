@@ -14,18 +14,18 @@
 | 分组 | 待办 | 部分解决 | 已解决 | 小计 |
 |---|---|---|---|---|
 | A 数据丢失 / 状态误报 | 4 | 0 | 0 | 4 |
-| B 各数据库特有分支 | 0 | 1 | 7 | 10（含 B6 / B7 已验证非缺陷） |
-| C 类型系统与编解码 | 3 | 0 | 3 | 6 |
+| B 各数据库特有分支 | 1 | 1 | 7 | 11（含 B6 / B7 已验证非缺陷；新增 B11 Oracle 表名模式） |
+| C 类型系统与编解码 | 1 | 0 | 5 | 7（含 C5 已验证非缺陷；新增 C7 Oracle 厂商类型码） |
 | D 性能与资源 | 6 | 0 | 0 | 6 |
 | E 设计与耦合 | 4 | 0 | 2 | 6 |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 4 |
 | G 测试与工具（新增） | 1 | 0 | 1 | 2 |
-| **合计** | **20** | **1** | **15** | **38** |
+| **合计** | **19** | **1** | **17** | **40** |
 
 **建议处理顺序**
 
 1. **A 组**（会真丢数据，无论概率高低都不可接受；A3 已被实机坐实）
-2. **C3 / C5 / C6 / G2**（正确性）
+2. **B11 / C7 / G2**（正确性；B11 会让 Oracle 目标表被误判为「不存在」而重复建表）
 3. **D / E / F**（性能、重构、文档一致性，可批量做）
 
 **依据列含义**
@@ -52,15 +52,15 @@
 
 ### B 组：各数据库特有分支缺失 / 写错
 
-**本组已全部处理完**（7 项已修 + B6 / B7 实机验证为非缺陷 + B3 部分解决）。明细见第四节归档与「已验证非缺陷」区。
+| 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
+|---|---|---|---|---|
+| B11 | `DatabaseMetadataService#catalog` + Oracle | Oracle 上 `includeTables` 的表名模式**除 `%` 之外全部落空**：`SL%`、`SL_FLOAT_PROBE`、`%FLOAT%` 都返回 0 张表，只有 `%` 能拿到 12 张（表确实存在，sqlplus 可查）。后果是 `JdbcTableTarget#prepare` 认为目标表不存在 → 重复建表 → 已存在的表一律失败，Oracle 的 APPEND / REPLACE 实际不可用 | 先确认是不是 SchemaCrawler Oracle 插件把表名模式匹配到了别的字段；临时解法是 Oracle 上不做 includeTables 下推，改用下游 `matches()` 精确过滤 | **实证**：Oracle 23.26 容器，`listTables` 逐模式实测 |
 
 ### C 组：类型系统与编解码
 
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
-| C3 | `JdbcTypes#logical` | `Types.FLOAT → FLOAT32`。**SQL Server 的 `FLOAT` 是 53 位双精度**，被降级成单精度 → 精度丢失 | FLOAT 按目标方言区分；SQL Server 应映射为 FLOAT64 | 推断 |
-| C5 | `LogicalTypeCatalog#nullable` | 用 `rs.getObject(index, Class)`（JDBC 4.1）。部分国产库老驱动未实现 → `AbstractMethodError` | 改用 `getObject(int)` + 本地转换，或捕获 `AbstractMethodError` 后降级 | 推断 |
-| C6 | `JdbcTableTarget#setValue` | null 值用**源列**的 `jdbcType` 调 `setNull`。跨库时源类型码目标库可能不支持 | null 绑定改用目标类型，或对不支持的类型码降级为 `setNull(Types.NULL)` | 推断 |
+| C7 | `JdbcTypes#logical` | Oracle 的 `BINARY_FLOAT` / `BINARY_DOUBLE` 上报**厂商类型码 100 / 101**，落到 `default` 分支被当成 `STRING` → 单/双精度浮点列按字符串读，写入目标库后类型与精度都变了 | 补 100 → FLOAT32、101 → FLOAT64 的映射 | **实证**：Oracle 23.26 容器，`DatabaseMetaData#getColumns` 实测 `DATA_TYPE=100/101` |
 
 ### D 组：性能与资源
 
@@ -122,8 +122,10 @@
 | F2 | README「数据库到数据库」章节写 `tableSource.read()` / `read(200)`，**实际方法名是 `preview(int)`**，`read(BatchConsumer)` 是另一个签名 → 文档跑不通 | 改为 `preview(100)` / `preview(200)`，并注明行数上限为 `MAX_PREVIEW_ROWS`（300）；`read(BatchConsumer)` 读全表的说明保持不变 | 2026-11-03 |
 | F4 | README 逻辑类型清单只列到 `BINARY`，漏了 `OFFSET_TIME` / `OFFSET_TIMESTAMP`；且 MySQL 列注释明确不迁移，文档没写清 | 清单补齐两种带时区类型并说明降级时会告警（B8）；方言章节新增一段说明各库注释迁移能力差异 —— MySQL / MariaDB / GBase 8a 只迁表注释，列注释仅采集不写回 | 2026-11-03 |
 | C4 | `LogicalTypeCatalog#time` 的 Excel decode 只做 `LocalTime.parse(String.valueOf(raw))`，日期列有 `excelDate()` 兜底而时间列没有 → Excel 时间单元格（序列号 0.5）解析必失败 | 新增 `excelTime(raw)`：Date 走 `excelDate`，序列号与数字字符串走 `DateUtil.getLocalDateTime(double)`，纯时间文本仍直接 `LocalTime.parse`。**不能复用 `excelDate`** —— 它经 `getJavaDate` 生成 Date 再按默认时区还原，在 1899 这个基准年份会命中中国时区 1901 年前的 LMT 偏移（+08:05:43），把 12:00 变成 12:05:43（单测实测）。新增用例 `decodesExcelTimeFromSerialNumber` | 2026-11-04 |
-| E3 | `MetadataQuery#fromConnectionInfo` 与主流程「按名称精确查询」两套命名空间语义并存，它实际只有测试在用；主流程 MySQL 系未把 database 下推为 catalog，元数据退化为全库扫 | 主流程统一走 `fromConnectionInfo`：新增 `fromConnectionInfo(info, QualifiedTableName)`（表名自带 catalog/schema 优先、其余回退方言默认值，info 为 null 时不推导），`JdbcTableSource` / `JdbcTableTarget`（3 处）/ `JdbcViewMigrator`（2 处）全部改用它；`DatabaseMetadataService` 增补 `getTable(provider, MetadataQuery)`。**同时收紧兜底**：删掉「catalog 与 schema 都为空时把 database 当 catalog」这条分支 —— Oracle 的 database 是服务名、达梦是实例名，下推后命名空间过滤会剔除全部 schema，表直接查不到 | 2026-11-04 |
+| E3 | `MetadataQuery#fromConnectionInfo` 与主流程「按名称精确查询」两套命名空间语义并存，它实际只有测试在用；主流程 MySQL 系未把 database 下推为 catalog，元数据退化为全库扫 | 主流程统一走 `fromConnectionInfo`：新增 `fromConnectionInfo(info, QualifiedTableName)`（表名自带 catalog/schema 优先、其余回退方言默认值，info 为 null 时不推导），`JdbcTableSource` / `JdbcTableTarget`（3 处）/ `JdbcViewMigrator`（2 处）全部改用它；`DatabaseMetadataService` 增补 `getTable(provider, MetadataQuery)`。**同时收紧兜底**：删掉「catalog 与 schema 都为空时把 database 当 catalog」这条分支 —— Oracle 的 database 是服务名、达梦是实例名，下推后命名空间过滤会剔除全部 schema，表直接查不到。**2026-11-06 补修**：PostgreSQL 分支当时仍把 database 当 catalog 下推，而命名空间过滤是拿 schema 名去匹配 SchemaCrawler 的「库名.public」全名，模式 `(?:^|.*/)public(?:/.*)?$` 匹配不上 → 精确表名查询命中 0 条（真实 PG 16 容器实测），目标表被误判为不存在。改为只透传显式配置的 catalog，未配置时保持 null | 2026-11-04，2026-11-06 补修 |
 | G1 | `EtlTaskTest#localTest` 连真实 MySQL，类名逃过了 surefire 的 `*IntegrationTest` 排除规则，本机没库时 `mvn test` 永远挂一个假红灯 | 给方法加 `@Ignore`（采用台账给出的第二种修法）。注意：**未改名为 `*IntegrationTest`**，用例仍留在 `EtlTaskTest` 里，只是不再执行 | 2026-11-04 |
+| C3 | `Types.FLOAT → FLOAT32` 把双精度列降级成单精度。**原判断的受害库搞错了** —— SQL Server 的 `float` 实际上报 `Types.DOUBLE(8)`、`float(24)`/`real` 上报 `REAL(7)`，不受影响；真正的受害库是**达梦**（`FLOAT` 上报 6，双精度）和 **Oracle**（`FLOAT` 上报 6，二进制精度 126 位） | `JdbcTypes#logical` 改为 `Types.FLOAT → FLOAT64`、`Types.REAL → FLOAT32`（与 JDBC 规范一致：FLOAT 对应 double）。达梦实测：修复前 `FLOAT` 存 `1.23456789012345` 读回 `1.2345679`（Float），修复后读回 `1.23456789012345`（Double），`REAL` 仍为 `1.2345679`。新增单测 `JdbcTypesTest#mapsFloatToFloat64` | 2026-11-06 |
+| C6 | null 绑定沿用**源列**的 `jdbcType` 调 `setNull`，跨库时源类型码在目标驱动上非法 | 改为按「逻辑类型在目标方言下的类型码」绑定：`nullSqlType(field)` 取 `dialect.mapping(...).degradesTo()`（无降级则用逻辑类型本身）对应的 JDBC 码。实测各目标库对全套逻辑类型标准码只有 DB2 拒绝 2013（已有降级逻辑覆盖）。回归：PG `uuid`(1111) → Oracle、SQL Server `nvarchar`(-9) → PostgreSQL 两条链路由失败转成功 | 2026-11-06 |
 
 ### 已验证非缺陷（实机推翻原判断）
 
@@ -131,6 +133,7 @@
 |---|---|---|---|
 | B6 | 达梦 `SET IDENTITY_INSERT` 可能不接受完整限定名 | **当前实现是对的**。达梦接受完整限定名（带引号 `"SL_B6"."T1"` 与不带引号 `SL_B6.T1` 均可，显式 ID 插入成功）；**反而只给表名 `SET IDENTITY_INSERT T1 ON` 会失败**。原推断方向搞反了 | 2026-10-28 |
 | B7 | GBase 8a 可能不支持 `ALTER TABLE ... RENAME TO`，应改用 `RENAME TABLE a TO b` | **当前实现是对的**。GBase 8a 9.5.3 上 `ALTER TABLE sl_rename_src RENAME TO sl_rename_dst` 执行成功，手册里的 `RENAME TABLE a TO b` 同样成功，两种语法都支持，无需改动 | 2026-10-29 |
+| C5 | `LogicalTypeCatalog#nullable` 用 `rs.getObject(index, Class)`（JDBC 4.1），担心部分国产库老驱动未实现 → `AbstractMethodError` | **6 个真实驱动全部正常**：SQL Server 13.6、DB2 4.34.30、达梦 8、PostgreSQL 42.2.2、GBase 9.5、Oracle 23.26，`getObject(int, Integer.class/BigDecimal.class/Boolean.class)` 均返回正确值。JDBC 4.1 是 Java 7（2011）就引入的接口方法，仓库自带的驱动全部实现，无法复现。残余风险只在 JDK7 之前编译的驱动上，未做防御性改写（改写反而会引入取值语义差异） | 2026-11-06 |
 
 ---
 
@@ -202,6 +205,37 @@ mvn -o -Pintegration test \
 | 顺带实证 A3 | 上述失败发生时，`EtlResult.status` 仍是 `SUCCESS`、`written=1`，错误只在 `errors` 里 | 坐实 A3「状态误报」 |
 | rename 语法本身 | 手工执行 `ALTER TABLE "SL_B9"."RN0_TMP" RENAME TO "RN0"`、不带引号、新名带引号三种形态**全部成功** | 达梦 rename 语法无问题，纯粹是大小写不一致 |
 | B7 / GBase 8a | `ALTER TABLE sl_rename_src RENAME TO sl_rename_dst` → OK；`RENAME TABLE sl_rename_dst TO sl_rename_tmp` → OK；最终只剩 `sl_rename_tmp` | **不是 BUG**，当前实现无需改动 |
+
+---
+
+### 2026-11-06 追加（C3 / C5 / C6）
+
+| 数据库 | 容器 | 连接 |
+|---|---|---|
+| SQL Server 2022 | `schema-loom-sqlserver-it` | localhost:11433 / master / sa |
+| PostgreSQL 16 | `schema-loom-postgres-it` | localhost:15432 / schemaloom_it / schemaloom |
+| DB2 12.1.5.0 | `schema-loom-db2-it` | localhost:15000 / BLUDB / db2inst1 |
+| 达梦 DM8 | `schema-loom-dm-it` | localhost:15236 / SYSDBA |
+| Oracle 23.26 | `schema-loom-oracle-it` | localhost:1521 / FREEPDB1 / SCHEMALOOM |
+| GBase 8a 9.5.3 | `schema-loom-gbase-it` | localhost:15258 / schemaloom_it |
+
+```bash
+mvn -o -Pintegration test \
+  "-Dtest=TypeBindingProbeIntegrationTest#probesFloatTypeMapping+probesPrecisionLoss+probesTypedGetObject+probesTypedGetObjectBoolean+probesSetNullTypeCodes+probesSetNullLogicalCodes+verifiesNullBindingAcrossDatabases"
+```
+
+| 项 | 现象 | 结论 |
+|---|---|---|
+| C3 类型码普查 | SQL Server：`float`→8、`float(24)`/`real`→7；DB2：`FLOAT`→8、`REAL`→7；PG：`float8`→8、`float4`→7；GBase：`FLOAT`→7、`DOUBLE`→8；**达梦：`FLOAT`→6、`REAL`→7、`DOUBLE`→8**；**Oracle：`FLOAT`→6** | 原判断「SQL Server 受害」**不成立**；真正的受害库是达梦与 Oracle，两者的 `FLOAT` 都是双精度却上报 6 |
+| C3 精度实测 / 达梦 | `FLOAT` 列存 `1.23456789012345`：`getDouble` 与 `getString` 都是全精度，`getFloat` 得 `1.2345679`；修复前 Schemaloom 读回 `FLOAT32` + `Float 1.2345679` | BUG 成立，已修；修复后读回 `FLOAT64` + `Double 1.23456789012345`，`REAL` 列仍为 `FLOAT32` |
+| C5 typed getObject | 6 个驱动 `getObject(int, Integer.class/BigDecimal.class)` 全部返回正确值 | 无法复现，**非缺陷** |
+| C5 Boolean 路径 | 6 个驱动 `getObject(int, Boolean.class)` 与 `getBoolean` 全部返回 `true` | 同上 |
+| C6 最小复现 | 直接 `setNull` 各类型码：**Oracle 1111 → ORA-17004 无效列类型**；**DB2 2013 → 无法识别 JDBC 类型 -4228**；**PostgreSQL -9 → 无法确定参数类型**；SQL Server / 达梦全部通过 | BUG 成立，已修 |
+| C6 标准码接受度 | 逻辑类型全套标准码（16/5/4/-5/3/7/8/12/91/92/93/-2/2013/2014）在 6 个目标库上**只有 DB2 拒绝 2013**，而 OFFSET_TIME 在 DB2 本就降级为 TIME | 证明按逻辑类型取码可行 |
+| C6 回归 | 修复前 PG `uuid`(1111) → Oracle 报 `write target batch failed`；SQL Server `nvarchar`(-9) → PostgreSQL 报「无法确定参数类型」。修复后两条并列任务均 `SUCCESS written=2` | 修复有效 |
+| E3 回归（自查发现） | PostgreSQL 上 `fromConnectionInfo` 把 database 当 catalog 后，精确表名查询命中 **0** 条（`(null,null,表名)` 命中 1 条，全库 10 条）→ 目标表被判为不存在、重复建表失败 | E3 引入的回归，已修：PG 分支只透传显式 catalog |
+| B11 / Oracle | `listTables` 逐模式实测：`%` → 12 张，`SL%` / `SL_FLOAT_PROBE` / `%FLOAT%` 全部 **0** 张（表确实存在，sqlplus 可查） | 新问题，见 B11，未修 |
+| C7 / Oracle | `DatabaseMetaData#getColumns` 实测 `BINARY_FLOAT` DATA_TYPE=**100**、`BINARY_DOUBLE`=**101**，SchemaCrawler 同样返回厂商码 | 新问题，见 C7，未修 |
 
 ---
 
