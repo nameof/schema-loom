@@ -23,9 +23,14 @@ public final class JdbcTypes {
             case Types.DECIMAL:
             case Types.NUMERIC:
                 return LogicalType.DECIMAL;
-            case Types.FLOAT:
             case Types.REAL:
                 return LogicalType.FLOAT32;
+            case Types.FLOAT:
+                // JDBC 规范里 FLOAT 对应 double；Oracle 的 FLOAT（二进制精度默认 126 位）
+                // 与达梦的 FLOAT（双精度）都上报 Types.FLOAT，按 FLOAT32 处理会丢精度。
+                // 实测达梦 FLOAT 存 1.23456789012345，按 FLOAT32 读回只剩 1.2345679。
+                // 单精度列在各库都上报 Types.REAL（SQL Server float(24)/real、MySQL 系 FLOAT、
+                // DB2 REAL、PostgreSQL float4、Oracle BINARY_FLOAT 上报厂商码 100，不走这里）。
             case Types.DOUBLE:
                 return LogicalType.FLOAT64;
             case Types.DATE:

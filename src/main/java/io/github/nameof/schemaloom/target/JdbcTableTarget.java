@@ -284,25 +284,26 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     }
 
     private void setValue(PreparedStatement ps, int index, FieldSchema field, Object value) throws SQLException {
-        if (value == null && tableInfo != null) {
-            for (ColumnInfo column : tableInfo.getColumns()) {
-                if (column.getName().equalsIgnoreCase(field.getName())) {
-                    ps.setNull(index, nullSqlType(field, column.getJdbcType()));
-                    return;
-                }
-            }
+        if (value == null) {
+            ps.setNull(index, nullSqlType(field));
+            return;
         }
         JdbcValueCodec.write(ps, index, field, value, dialect);
     }
 
     /**
-     * null 绑定同样要跟随方言的降级结果：源列的 JDBC 类型码可能不被目标驱动识别
-     * （带时区的类型码 2013 在 DB2 上直接报「无法识别的 JDBC 类型」）。
+     * null 绑定用「逻辑类型在目标方言下的类型码」，不能沿用源列的类型码：
+     * 源列类型码是源库的概念，目标驱动未必认识（实测 PostgreSQL 源列的 NVARCHAR(-9)
+     * 写到 VARCHAR 列报「无法确定参数类型」、Oracle 目标的 OTHER(1111) 报 ORA-17004），
+     * 而且源列类型与建表时生成的目标列类型本来就是两回事。
+     * <p>
+     * 方言把逻辑类型降级时必须跟着降级，否则 DB2 会因 2013（TIME_WITH_TIMEZONE）
+     * 报「无法识别的 JDBC 类型」（ERRORCODE=-4228）。
      */
-    private int nullSqlType(FieldSchema field, int sourceJdbcType) {
+    private int nullSqlType(FieldSchema field) {
         DatabaseTypeMapping mapping = dialect.mapping(field.getLogicalType());
-        LogicalType degraded = mapping == null ? null : mapping.degradesTo();
-        return degraded == null ? sourceJdbcType : LogicalTypeCatalog.get(degraded).jdbcSqlType();
+        LogicalType target = mapping == null ? null : mapping.degradesTo();
+        return LogicalTypeCatalog.get(target == null ? field.getLogicalType() : target).jdbcSqlType();
     }
 
     public void close() {
