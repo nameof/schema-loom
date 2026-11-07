@@ -16,6 +16,14 @@ final class SqlServerDialect extends AbstractDialect {
         return "\"";
     }
 
+    /**
+     * SQL Server 是三级别命名（库.模式.对象），且 T-SQL 原生支持「空模式段」写法 {@code 库..表}，
+     * 表示「该库的默认模式」。只有库、没有模式时必须用它，否则 {@code 库.表} 会被当成
+     * {@code schema.table} 而报「对象不存在」。
+     */
+    @Override
+    protected boolean supportsEmptySchemaSegment() { return true; }
+
     @Override
     public DatabaseTypeMapping mapping(LogicalType type) { return mappings.get(type); }
 
@@ -39,21 +47,47 @@ final class SqlServerDialect extends AbstractDialect {
                 + StrUtil.replace(target, "'", "''") + "'";
     }
 
+    /**
+     * sp_rename 的对象名最多接受「模式.对象」或「对象」，不接受带库的三段名，
+     * 因此三段时丢掉库段；空模式段（{@code 库..表}）时只保留表名。
+     */
     private String normalizeRenameSource(String table) {
-        String value = unquoteQualifiedName(table);
-        int firstDot = value.indexOf('.');
-        if (firstDot >= 0 && value.indexOf('.', firstDot + 1) >= 0) value = value.substring(firstDot + 1);
-        return value;
+        List<String> segments = segments(unquoteQualifiedName(table));
+        if (segments.size() >= 3) segments = segments.subList(1, segments.size());
+        return joinSkippingBlank(segments);
     }
 
     private String normalizeRenameTarget(String table) {
-        String value = unquoteQualifiedName(table);
-        int lastDot = value.lastIndexOf('.');
-        return lastDot < 0 ? value : value.substring(lastDot + 1);
+        return lastSegment(unquoteQualifiedName(table));
     }
 
     private String unquoteQualifiedName(String value) {
         return StrUtil.replace(StrUtil.replace(value, "\".\"", "."), "\"", "");
+    }
+
+    /** 按点号切分段并保留空段：{@code 库..表} 的空模式段本身就是有意义的语义。 */
+    private List<String> segments(String value) {
+        List<String> result = new ArrayList<String>();
+        if (value == null) return result;
+        int start = 0;
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == '.') {
+                result.add(value.substring(start, i).trim());
+                start = i + 1;
+            }
+        }
+        result.add(value.substring(start).trim());
+        return result;
+    }
+
+    private String joinSkippingBlank(List<String> segments) {
+        StringBuilder joined = new StringBuilder();
+        for (String segment : segments) {
+            if (StrUtil.isBlank(segment)) continue;
+            if (joined.length() > 0) joined.append('.');
+            joined.append(segment);
+        }
+        return joined.toString();
     }
 
     /**
@@ -79,17 +113,23 @@ final class SqlServerDialect extends AbstractDialect {
         return sql;
     }
 
-    /** 目标限定名含架构段时取架构段；否则回退源表架构，最后回退 SQL Server 默认架构 dbo。 */
+    /**
+     * 目标限定名含架构段时取架构段；空架构段（{@code 库..表}）时回退源表架构，
+     * 最后回退 SQL Server 默认架构 dbo —— {@code sp_addextendedproperty} 不接受空架构名。
+     */
     private String resolveSchema(String target, QualifiedTableName source) {
-        List<String> segments = StrUtil.split(target, '.');
-        if (segments.size() >= 3) return segments.get(1);
-        if (segments.size() == 2) return segments.get(0);
-        return source.getSchema() == null ? "dbo" : source.getSchema();
+        List<String> segments = segments(target);
+        if (segments.size() >= 3 && StrUtil.isNotBlank(segments.get(1))) return segments.get(1);
+        if (segments.size() == 2 && StrUtil.isNotBlank(segments.get(0))) return segments.get(0);
+        String sourceSchema = source == null ? null : source.getSchema();
+        return StrUtil.blankToDefault(sourceSchema, "dbo");
     }
 
     private String lastSegment(String target) {
-        List<String> segments = StrUtil.split(target, '.');
-        return segments.isEmpty() ? null : segments.get(segments.size() - 1);
+        List<String> segments = segments(target);
+        for (int i = segments.size() - 1; i >= 0; i--)
+            if (StrUtil.isNotBlank(segments.get(i))) return segments.get(i);
+        return null;
     }
 
     private String literal(String value) {

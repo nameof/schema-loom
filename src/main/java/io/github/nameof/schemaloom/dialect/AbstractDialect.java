@@ -18,13 +18,32 @@ abstract class AbstractDialect implements DatabaseDialect {
         return q + s.replace(q, q + q) + q;
     }
 
+    /**
+     * 生成带标识符引用的限定表名。
+     * <p>
+     * catalog 与 schema 是两个不同层级：MySQL / MariaDB / GBase 8a 只有「库即 schema」一层，
+     * 传 catalog 时输出两段名是正确的；SQL Server / DB2 这类三级命名的库，两段名会被解析成
+     * {@code schema.table}，只给 catalog 时拼出的 {@code 库.表} 反而指向一个不存在的 schema
+     * （SQL Server 实测报 {@code Invalid object name}）。这类方言用「空模式段」表达
+     * 「库 + 默认 schema」，见 {@link #supportsEmptySchemaSegment()}。
+     * </p>
+     */
     @Override
     public String quote(QualifiedTableName table) {
         if (table == null) throw new IllegalArgumentException("table is required");
         StringBuilder sql = new StringBuilder();
         if (table.getCatalog() != null) sql.append(quote(table.getCatalog())).append('.');
         if (table.getSchema() != null) sql.append(quote(table.getSchema())).append('.');
+        else if (table.getCatalog() != null && supportsEmptySchemaSegment()) sql.append('.');
         return sql.append(quote(table.getTable())).toString();
+    }
+
+    /**
+     * 三级别命名（库.模式.对象）的方言是否接受空模式段，即 {@code 库..表} 的写法。
+     * <p>默认不接受：多数方言只用两段名表达「schema.table」，让 catalog 独占一段会改变语义。</p>
+     */
+    protected boolean supportsEmptySchemaSegment() {
+        return false;
     }
 
     @Override

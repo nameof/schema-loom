@@ -121,8 +121,7 @@ public final class DatabaseMetadataService {
             schemacrawler.schemacrawler.SchemaCrawlerOptions options = SchemaCrawlerOptionsBuilder.newSchemaCrawlerOptions();
             if (query != null) {
                 LimitOptionsBuilder limits = LimitOptionsBuilder.builder();
-                Pattern schemaPattern = query.getCatalog() == null ? null
-                        : namespacePattern(query.getCatalog(), query.getSchema());
+                Pattern schemaPattern = schemaPattern(provider, query);
                 if (schemaPattern != null) limits.includeSchemas(schemaPattern);
                 if (loadTables) limits.includeTables(sqlPattern(query.getTablePattern()));
                 options = options.withLimitOptions(limits.toOptions());
@@ -138,10 +137,59 @@ public final class DatabaseMetadataService {
         }
     }
 
+    /**
+     * 决定是否把 schema 过滤下推给 SchemaCrawler，并构造匹配模式。
+     * <p>
+     * catalog 有值时命名空间已精确定位，直接下推（MySQL / MariaDB / GBase 8a 把库名放在 catalog 上，
+     * 走的正是这条路）。只有 schema 时不能对所有类型开口：PostgreSQL / KingbaseES 的
+     * {@link MetadataQuery#fromConnectionInfo} 恒把 schema 兜底成 public，DB2 的默认 schema 由连接会话决定，
+     * 这几类一旦按 schema 下推就可能把全部表过滤掉（它们还依赖 SC_WITHOUT_DATABASE_PLUGIN 的插件兜底，
+     * 过滤语义不稳定），因此只对命名空间语义可靠的库开放。
+     * </p>
+     */
+    private Pattern schemaPattern(ConnectionProvider provider, MetadataQuery query) {
+        if (query == null) return null;
+        boolean hasCatalog = StrUtil.isNotBlank(query.getCatalog());
+        boolean hasSchema = StrUtil.isNotBlank(query.getSchema());
+        if (!hasCatalog && !hasSchema) return null;
+        if (!hasCatalog && !pushesSchemaFilter(provider)) return null;
+        return namespacePattern(query.getCatalog(), query.getSchema());
+    }
+
+    /**
+     * 是否允许"只配 schema、不配 catalog"时下推过滤。
+     * <p>
+     * 与表名模式下推的开关同样按产品名判断，只放行实测可用的方言：
+     * <ul>
+     *   <li>SQL Server：schema 全名为 {@code catalog.schema}，下推后仍能命中，且能显著减少扫描范围；</li>
+     *   <li>达梦：schema 全名就是 schema 本身，下推可用；</li>
+     *   <li>Oracle <b>不放行</b>：实测 Oracle 23.26 下 includeSchemas 一旦生效就返回 0 张表
+     *       （表本身存在，去掉下推即可读到），与 includeTables 在 Oracle 上失效属同一类插件问题。
+     *       保持"不下推 + 下游精确匹配"，与改造前行为一致。</li>
+     * </ul>
+     * </p>
+     */
+    private boolean pushesSchemaFilter(ConnectionProvider provider) {
+        String product = productName(provider);
+        if (product == null) return false;
+        String lower = product.toLowerCase(Locale.ENGLISH);
+        return lower.contains("sql server") || lower.contains("dm dbms");
+    }
+
+    /** 读取数据库产品名；失败时返回 null，由调用方各自按保守策略处理。 */
+    private String productName(ConnectionProvider provider) {
+        try {
+            return provider.getConnection().getMetaData().getDatabaseProductName();
+        } catch (SQLException e) {
+            log.debug("读取数据库产品名失败，命名空间过滤保持默认行为", e);
+            return null;
+        }
+    }
+
     /** SchemaCrawler 对 PostgreSQL/DB2 会要求额外 connector；通用 JDBC 模式无需上层配置。 */
     private Catalog loadCatalogWithCompatibility(ConnectionProvider provider,
                                                    schemacrawler.schemacrawler.SchemaCrawlerOptions options) throws Exception {
-        String product = provider.getConnection().getMetaData().getDatabaseProductName();
+        String product = productName(provider);
         String productLower = product == null ? "" : product.toLowerCase(Locale.ENGLISH);
         boolean needsPluginWorkaround = productLower.contains("postgresql") || productLower.contains("db2") || productLower.contains("kingbase");
         if (!needsPluginWorkaround)
@@ -158,10 +206,18 @@ public final class DatabaseMetadataService {
             }
         }
     }
+    /**
+     * 构造 SchemaCrawler 的 Schema 全名匹配模式。
+     * <p>
+     * 实测（SchemaCrawler 16.29.1，{@code SchemaReference#getFullName}）：catalog 与 schema 都存在时全名是
+     * {@code catalog.schema}（点号分隔），只存在其一时就是该名称本身。此处同时接受 "." 与 "/"，
+     * 既覆盖标准实现，也兼容个别插件改写分隔符，避免"catalog 有值就一个 schema 都匹配不上、最终 0 张表"。
+     * </p>
+     */
     private Pattern namespacePattern(String catalog, String schema) {
-        if (catalog == null && schema == null) return null;
-        String name = schema == null ? catalog : schema;
-        return Pattern.compile("(?:^|.*/)" + Pattern.quote(name) + "(?:/.*)?$", Pattern.CASE_INSENSITIVE);
+        String name = StrUtil.isBlank(schema) ? catalog : schema;
+        if (StrUtil.isBlank(name)) return null;
+        return Pattern.compile("(?:^|.*[./])" + Pattern.quote(name) + "(?:[./].*)?$", Pattern.CASE_INSENSITIVE);
     }
 
     private Pattern sqlPattern(String value) {

@@ -191,6 +191,40 @@ public class DialectTest {
     }
 
     @Test
+    public void quotesCatalogOnlyTableNamesAccordingToDialectSemantics() {
+        DialectRegistry registry = new DialectRegistry();
+        // MySQL 系「库即 schema」，只有 catalog 时两段名就是 库.表，语义正确
+        assertEquals("`sl_source`.`user_info`", registry.get(DatabaseType.MYSQL)
+                .quote(new QualifiedTableName("sl_source", null, "user_info")));
+        assertEquals("`sl_source`.`user_info`", registry.get(DatabaseType.MARIADB)
+                .quote(new QualifiedTableName("sl_source", null, "user_info")));
+        // SQL Server 是三级别命名，只给库时两段名会被当成 schema.table（实测报「对象不存在」），
+        // 必须写成 T-SQL 的空模式段形态 库..表
+        assertEquals("\"sl_source\"..\"user_info\"", registry.get(DatabaseType.SQL_SERVER)
+                .quote(new QualifiedTableName("sl_source", null, "user_info")));
+        // 有 schema 时仍是完整三段名
+        assertEquals("\"sl_source\".\"dbo\".\"user_info\"", registry.get(DatabaseType.SQL_SERVER)
+                .quote(new QualifiedTableName("sl_source", "dbo", "user_info")));
+    }
+
+    @Test
+    public void renamesAndCommentsCatalogOnlySqlServerTables() {
+        DialectRegistry registry = new DialectRegistry();
+        // 库..表 形态下 sp_rename 的对象名只能留表名：sp_rename 不接受带库的三段名
+        assertEquals("EXEC sp_rename N'user_info', N'user_info_bak'",
+                registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"sl_source\"..\"user_info\"", "\"sl_target\"..\"user_info_bak\""));
+        TableInfo source = new TableInfo(new QualifiedTableName(null, null, "user_info"), false, "TABLE",
+                Collections.singletonList(new ColumnInfo("id", "INT", "主键", LogicalType.INT32,
+                        Types.INTEGER, 1, false, null, null, null)),
+                null, Collections.<IndexInfo>emptyList(), Collections.<ForeignKeyInfo>emptyList(),
+                Collections.<ConstraintInfo>emptyList(), "用户表");
+        List<String> sql = registry.get(DatabaseType.SQL_SERVER).commentSql("\"sl_source\"..\"user_info\"", source);
+        // 空模式段时扩展属性必须落到 dbo，sp_addextendedproperty 不接受空架构名
+        assertTrue(sql.get(0).contains("@level0name=N'dbo'"));
+        assertTrue(sql.get(0).contains("@level1name=N'user_info'"));
+    }
+
+    @Test
     public void renamesQualifiedTablesAccordingToDatabaseSyntax() {
         DialectRegistry registry = new DialectRegistry();
         assertEquals("ALTER TABLE \"public\".\"old\" RENAME TO \"new\"",
