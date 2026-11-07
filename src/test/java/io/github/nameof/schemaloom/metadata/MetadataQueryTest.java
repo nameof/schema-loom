@@ -36,7 +36,10 @@ public class MetadataQueryTest {
         DatabaseConnectionInfo info = new DatabaseConnectionInfo(DatabaseType.POSTGRESQL, "localhost", 5432,
                 "db", "user", "password");
         MetadataQuery query = MetadataQuery.fromConnectionInfo(info, "%");
-        assertEquals("db", query.getCatalog());
+        // 不能把 database 当 catalog 下推：命名空间过滤拿 schema 名去匹配 SchemaCrawler 的
+        // 「catalog.schema」全名，catalog 非空时「db.public」匹配不上 public，会一张表都查不到
+        // （真实 PostgreSQL 容器实测命中 0 条）。
+        assertNull(query.getCatalog());
         assertEquals("public", query.getSchema());
     }
 

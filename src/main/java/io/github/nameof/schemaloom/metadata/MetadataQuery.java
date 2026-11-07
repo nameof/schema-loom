@@ -28,7 +28,11 @@ public final class MetadataQuery {
         if (type == DatabaseType.MYSQL || type == DatabaseType.MARIADB || type == DatabaseType.GBASE)
             return new MetadataQuery(connectionInfo.getDatabase(), null, tablePattern);
         if (type == DatabaseType.POSTGRESQL)
-            return new MetadataQuery(connectionInfo.getDatabase(), connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);
+            // PostgreSQL 不能把 database 下推成 catalog：DatabaseMetadataService 的命名空间过滤
+            // 拿 schema 名去匹配 SchemaCrawler 的「catalog.schema」全名，一旦 catalog 非空，
+            // 模式「(?:^|.*/)public(?:/.*)?$」匹配不上「库名.public」，会把所有表都过滤掉。
+            // 因此这里只透传显式配置的 catalog，未配置时保持 null（与 KingbaseES 一致）。
+            return new MetadataQuery(connectionInfo.getCatalog(), connectionInfo.getSchema() == null ? "public" : connectionInfo.getSchema(), tablePattern);
         // KingbaseES 兼容 PostgreSQL 但 SchemaCrawler 的 schema 模式匹配不兼容，
         // 不设置 catalog/schema 过滤，由下游代码做精确匹配
         if (type == DatabaseType.KINGBASE)
