@@ -126,7 +126,7 @@ public final class DatabaseMetadataService {
                 LimitOptionsBuilder limits = LimitOptionsBuilder.builder();
                 Pattern schemaPattern = schemaPattern(provider, query);
                 if (schemaPattern != null) limits.includeSchemas(schemaPattern);
-                if (loadTables) limits.includeTables(sqlPattern(query.getTablePattern()));
+                if (loadTables && pushesTableFilter(provider)) limits.includeTables(sqlPattern(query.getTablePattern()));
                 options = options.withLimitOptions(limits.toOptions());
             }
             if (!loadTables) {
@@ -162,10 +162,14 @@ public final class DatabaseMetadataService {
     /**
      * 是否允许"只配 schema、不配 catalog"时下推过滤。
      * <p>
-     * 与表名模式下推的开关同样按产品名判断，只放行实测可用的方言：
+     * 与 {@link #pushesTableFilter} 同样按产品名判断，只放行实测可用的方言：
      * <ul>
      *   <li>SQL Server：schema 全名为 {@code catalog.schema}，下推后仍能命中，且能显著减少扫描范围；</li>
      *   <li>达梦：schema 全名就是 schema 本身，下推可用；</li>
+     *   <li>DB2：schema 全名就是 schema 本身，下推可用。实测 DB2 容器（BLUDB，7 个 schema / 343 张表）
+     *       只取 {@code SL_SOURCE} 时，不下推要扫全部 343 张表、耗时 23.6 秒（每张表一次索引检索），
+     *       下推后 0.64 秒；此前按"默认 schema 由连接会话决定"排除 DB2，实测该顾虑不成立
+     *       （未配置 schema 时 {@link MetadataQuery#fromConnectionInfo} 传的就是 null，根本不会走到这里）；</li>
      *   <li>Oracle <b>不放行</b>：实测 Oracle 23.26 下 includeSchemas 一旦生效就返回 0 张表
      *       （表本身存在，去掉下推即可读到），与 includeTables 在 Oracle 上失效属同一类插件问题。
      *       保持"不下推 + 下游精确匹配"，与改造前行为一致。</li>
@@ -176,7 +180,7 @@ public final class DatabaseMetadataService {
         String product = productName(provider);
         if (product == null) return false;
         String lower = product.toLowerCase(Locale.ENGLISH);
-        return lower.contains("sql server") || lower.contains("dm dbms");
+        return lower.contains("sql server") || lower.contains("dm dbms") || lower.contains("db2");
     }
 
     /** 读取数据库产品名；失败时返回 null，由调用方各自按保守策略处理。 */
@@ -187,6 +191,27 @@ public final class DatabaseMetadataService {
             log.debug("读取数据库产品名失败，命名空间过滤保持默认行为", e);
             return null;
         }
+    }
+
+    /**
+     * 是否把表名模式下推给 SchemaCrawler。
+     * <p>
+     * Oracle 插件会把 includeTables 的正则当成表名模式去查系统表，形如 {@code ^.*SL.*$}
+     * 的模式匹配不到任何表（Oracle 23.26 实测：只有 {@code %} 能拿到表，其余模式全部返回 0 张），
+     * 结果是目标表存在也被判为不存在、反复建表。Oracle 上放弃表名下推，只保留 schema 下推，
+     * 由 {@link #listTables} 里的 {@code matches}/{@code pattern} 做精确过滤。
+     * </p>
+     * <p>
+     * 读不到产品名时与 {@link #pushesSchemaFilter} 保持一致：宁可少下推、多扫一遍，
+     * 也不能在无法排除 Oracle 的情况下把表名下推打开 —— 那会重新踩进上面那条致命路径。
+     * 放行的代价只是变慢（下游 {@code pattern} 兜底保证结果正确），漏判的代价是目标表被
+     * 误判为不存在、重复建表。
+     * </p>
+     */
+    private boolean pushesTableFilter(ConnectionProvider provider) {
+        String product = productName(provider);
+        if (product == null) return false;
+        return !product.toLowerCase(Locale.ENGLISH).contains("oracle");
     }
 
     /** SchemaCrawler 对 PostgreSQL/DB2 会要求额外 connector；通用 JDBC 模式无需上层配置。 */
