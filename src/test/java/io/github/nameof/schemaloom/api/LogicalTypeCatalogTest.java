@@ -35,6 +35,22 @@ public class LogicalTypeCatalogTest {
         assertEquals(LocalTime.of(12, 0), time.decodeExcel("12:00:00"));
     }
 
+    @Test public void coercesOracleDateTimeToDate() {
+        // Oracle DATE 在 SchemaCrawler 侧是 DATE、在驱动 ResultSetMetaData 侧是 TIMESTAMP，
+        // 收敛时必须把 LocalDateTime 截断成 LocalDate，否则 DataRecord 的值校验直接抛异常
+        assertEquals(LocalDate.of(2026, 1, 5),
+                LogicalTypeCatalog.coerce(java.time.LocalDateTime.of(2026, 1, 5, 13, 20), LogicalType.DATE));
+        // 已是目标类型、null、以及无关类型都不受影响
+        assertEquals(LocalDate.of(2026, 1, 5), LogicalTypeCatalog.coerce(LocalDate.of(2026, 1, 5), LogicalType.DATE));
+        assertNull(LogicalTypeCatalog.coerce(null, LogicalType.DATE));
+        assertEquals(java.time.LocalDateTime.of(2026, 1, 5, 13, 20),
+                LogicalTypeCatalog.coerce(java.time.LocalDateTime.of(2026, 1, 5, 13, 20), LogicalType.TIMESTAMP));
+        // 复现原始崩溃路径：收敛后的值必须能通过 Schema 校验
+        RecordSchema schema = new RecordSchema(Arrays.asList(FieldSchema.of("created_at", LogicalType.DATE)));
+        Object coerced = LogicalTypeCatalog.coerce(java.time.LocalDateTime.of(2026, 1, 5, 13, 20), schema.getFields().get(0).getLogicalType());
+        assertEquals(LocalDate.of(2026, 1, 5), new DataRecord(schema, Arrays.asList(coerced)).get(0));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsVendorDateType() {
         RecordSchema schema = new RecordSchema(Arrays.asList(FieldSchema.of("date", LogicalType.DATE)));

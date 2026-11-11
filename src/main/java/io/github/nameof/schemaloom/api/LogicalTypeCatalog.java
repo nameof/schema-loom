@@ -31,6 +31,39 @@ public final class LogicalTypeCatalog {
                     + " but received " + value.getClass().getName());
     }
 
+    /**
+     * 把驱动返回值收敛到逻辑类型要求的 Java 类型。
+     * <p>
+     * 部分驱动不按请求类型转换：Oracle 的 {@code FLOAT} 列底层是 NUMBER，
+     * {@code getObject(i, Double.class)} 仍返回 {@code BigDecimal}；同一列在 SchemaCrawler
+     * 里是 FLOAT(6)、在驱动 {@code ResultSetMetaData} 里是 NUMERIC(2)，
+     * 两套元数据对同一个值给出不同逻辑类型时，需要按目标类型收敛后才能通过校验。
+     * <p>
+     * 时间类型同理：Oracle 的 {@code DATE} 列在 SchemaCrawler 里是 DATE（要求 {@code LocalDate}），
+     * 驱动的 {@code ResultSetMetaData} 却把它报成 TIMESTAMP（读出 {@code LocalDateTime}）。
+     * 不收敛会让预览与 ETL 在 {@code DataRecord} 的值校验上直接失败。
+     */
+    public static Object coerce(Object value, LogicalType type) {
+        return value == null ? null : coerce(value, get(type).javaType());
+    }
+
+    /** 按目标 Java 类型收敛时间与数值；无法收敛时原样返回，由调用方的校验暴露。 */
+    private static Object coerce(Object value, Class<?> expected) {
+        if (value == null || expected.isInstance(value)) return value;
+        // 目标逻辑类型是 DATE 而驱动给出带时间的值（Oracle DATE），按目标类型截断时分秒：
+        // 这是有意的取舍 —— 表元数据说这列是 DATE，收敛后至少要能读出来。
+        if (expected == LocalDate.class && value instanceof LocalDateTime) return ((LocalDateTime) value).toLocalDate();
+        if (!(value instanceof Number) || !Number.class.isAssignableFrom(expected)) return value;
+        Number number = (Number) value;
+        if (expected == Double.class) return number.doubleValue();
+        if (expected == Float.class) return number.floatValue();
+        if (expected == Long.class) return number.longValue();
+        if (expected == Integer.class) return number.intValue();
+        if (expected == Short.class) return number.shortValue();
+        if (expected == BigDecimal.class) return new BigDecimal(number.toString());
+        return value;
+    }
+
     private static Map<LogicalType, LogicalTypeDefinition> createDefinitions() {
         EnumMap<LogicalType, LogicalTypeDefinition> definitions = new EnumMap<>(LogicalType.class);
         // 标量类型共用相同的文本/Excel/JDBC 结构，只把 Java 类型和具体 JDBC 操作传入模板。
@@ -208,8 +241,11 @@ public final class LogicalTypeCatalog {
      * 字符串类型可不用处理，java.sql.ResultSet#getString(int) 已约定如果SQL结果为NULL，会返回java null
      */
     private static <T> T nullable(ResultSet rs, int index, Class<T> type) throws SQLException {
-        T value = rs.getObject(index, type);
-        return rs.wasNull() ? null : value;
+        Object value = rs.getObject(index, type);
+        if (rs.wasNull() || value == null) return null;
+        // 部分驱动不按请求类型转换：Oracle 的 FLOAT 列底层是 NUMBER，
+        // getObject(i, Double.class) 仍返回 BigDecimal，会让 DataRecord 的值类型校验失败。
+        return type.cast(coerce(value, type));
     }
 
     private interface Parser { Object parse(String text); }

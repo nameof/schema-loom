@@ -279,10 +279,16 @@ public final class DatabaseMetadataService {
             if (typeNumber == UNKNOWN_TYPE_NUMBER && logicalType == LogicalType.STRING)
                 log.warn("未识别的列类型，按字符串处理 table={} column={} type={}",
                         table.getName(), column.getName(), databaseTypeName);
+            // Oracle 未指定精度的 NUMBER（如 GENERATED AS IDENTITY 主键）在 SchemaCrawler 里
+            // 是 size=0、decimalDigits=-127（Oracle 表示「未指定」的约定值），原样传给
+            // FieldSchema 会因「scale must be non-negative」让整表元数据读取失败。
             Integer size = column.getSize();
+            if (size != null && size <= 0) size = null;
+            Integer decimalDigits = column.getDecimalDigits();
+            if (decimalDigits != null && decimalDigits < 0) decimalDigits = null;
             Integer length = logicalType == LogicalType.STRING || logicalType == LogicalType.BINARY ? size : null;
             Integer precision = logicalType == LogicalType.DECIMAL ? size : null;
-            Integer scale = logicalType == LogicalType.DECIMAL ? column.getDecimalDigits() : null;
+            Integer scale = logicalType == LogicalType.DECIMAL ? decimalDigits : null;
             String value = column.getDefaultValue();
             FieldSchema field = new FieldSchema(column.getName(), logicalType, column.isNullable(), length, precision, scale);
             // DB2 等数据库将 identity 列也视为 generated，但 identity 列没有生成表达式，

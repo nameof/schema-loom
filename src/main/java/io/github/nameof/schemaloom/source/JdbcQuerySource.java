@@ -111,11 +111,17 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
             // 策略可能主动返回 null，因此即使数据库声明 NOT NULL，也必须对外声明可空。
             boolean nullable = m.isNullable(i) != ResultSetMetaData.columnNoNulls
                     || largeFieldPolicy.canReturnNull(m.getColumnLabel(i), m.getColumnType(i), m.getColumnTypeName(i));
+            // Oracle 的浮点列与未指定精度的 NUMBER 会给出 -127 这类「未指定」约定值，
+            // 直接塞进 FieldSchema 会因「必须是非负数」把整个查询 Schema 解析打挂，
+            // 因此负值一律按未指定处理。类型码同样要带类型名，才能识别 BINARY_FLOAT/BINARY_DOUBLE。
             fs.add(new FieldSchema(m.getColumnLabel(i), JdbcTypes.logical(m.getColumnType(i), m.getColumnTypeName(i)), nullable,
-                    m.getColumnDisplaySize(i), m.getPrecision(i), m.getScale(i)));
+                    nonNegative(m.getColumnDisplaySize(i)), nonNegative(m.getPrecision(i)), nonNegative(m.getScale(i))));
         }
         return new RecordSchema(fs);
     }
+
+    /** 负值表示数据库未指定（Oracle 用 -127），统一按 null 处理。 */
+    private static Integer nonNegative(int value) { return value < 0 ? null : value; }
 
     /** 不读取二进制字段，避免 BLOB/BINARY 被 JDBC 驱动物化到应用内存。 */
     private DataRecord readRecord(ResultSet r, ResultSetMetaData metadata, RecordSchema sc, boolean skipBinary,

@@ -172,7 +172,7 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
             // 委托使用查询 Schema；这里换回表元数据生成的正式 Schema，保持引用一致性。
             // 委托返回的记录可能携带不同的 Schema，这里统一替换为表的正式 Schema。
             for (DataRecord record : batch.getRecords()) {
-                records.add(new DataRecord(schema, record.getValues()));
+                records.add(align(schema, record));
             }
             c.accept(new RecordBatch(schema, records));
         });
@@ -186,8 +186,26 @@ public final class JdbcTableSource implements Source, ReadStatisticsProvider {
         final RecordSchema schema = ensureSchema();
         List<DataRecord> records = new ArrayList<DataRecord>();
         for (DataRecord record : delegate.readRows(maxRows))
-            records.add(new DataRecord(schema, record.getValues()));
+            records.add(align(schema, record));
         return records;
+    }
+
+    /**
+     * 把委托记录的取值收敛到表元数据生成的 Schema。
+     * <p>
+     * 委托 Schema 来自驱动的 {@code ResultSetMetaData}，与 SchemaCrawler 的表元数据可能不一致：
+     * Oracle 的 {@code FLOAT} 列在驱动侧是 NUMERIC（值读出来是 BigDecimal），
+     * 在 SchemaCrawler 侧是 FLOAT（逻辑类型 FLOAT64，要求 Double）。
+     * 直接替换 Schema 会因值类型不匹配被 DataRecord 拒绝。
+     */
+    private DataRecord align(RecordSchema schema, DataRecord record) {
+        List<FieldSchema> fields = schema.getFields();
+        List<Object> values = new ArrayList<Object>(fields.size());
+        for (int i = 0; i < fields.size(); i++)
+            values.add(i < record.getValues().size()
+                    ? LogicalTypeCatalog.coerce(record.getValues().get(i), fields.get(i).getLogicalType())
+                    : null);
+        return new DataRecord(schema, values);
     }
 
     public synchronized void close() {
