@@ -8,6 +8,18 @@ public final class JdbcTypes {
     private JdbcTypes() {
     }
 
+    /**
+     * 带类型名的逻辑类型判定，用于处理不在 {@link Types} 里的厂商类型码。
+     * <p>
+     * Oracle 的 {@code BINARY_FLOAT} / {@code BINARY_DOUBLE} 驱动上报厂商码 100 / 101，
+     * SchemaCrawler 又把它归一化成 {@code UNKNOWN}，两条路径都拿不到标准码，只能按类型名识别。
+     */
+    public static LogicalType logical(int t, String typeName) {
+        if ("BINARY_FLOAT".equalsIgnoreCase(typeName)) return LogicalType.FLOAT32;
+        if ("BINARY_DOUBLE".equalsIgnoreCase(typeName)) return LogicalType.FLOAT64;
+        return logical(t);
+    }
+
     public static LogicalType logical(int t) {
         switch (t) {
             case Types.BOOLEAN:

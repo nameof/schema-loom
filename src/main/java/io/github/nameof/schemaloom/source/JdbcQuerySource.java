@@ -111,7 +111,7 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
             // 策略可能主动返回 null，因此即使数据库声明 NOT NULL，也必须对外声明可空。
             boolean nullable = m.isNullable(i) != ResultSetMetaData.columnNoNulls
                     || largeFieldPolicy.canReturnNull(m.getColumnLabel(i), m.getColumnType(i), m.getColumnTypeName(i));
-            fs.add(new FieldSchema(m.getColumnLabel(i), JdbcTypes.logical(m.getColumnType(i)), nullable,
+            fs.add(new FieldSchema(m.getColumnLabel(i), JdbcTypes.logical(m.getColumnType(i), m.getColumnTypeName(i)), nullable,
                     m.getColumnDisplaySize(i), m.getPrecision(i), m.getScale(i)));
         }
         return new RecordSchema(fs);

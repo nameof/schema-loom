@@ -28,6 +28,9 @@ import java.util.regex.Pattern;
  * 支持读取数据库、Schema、表、列、索引等元数据，以及表和 Schema 的统计信息。
  */
 public final class DatabaseMetadataService {
+
+    /** SchemaCrawler 对未收录的类型码给出 UNKNOWN，其 vendorTypeNumber 是 Integer.MIN_VALUE。 */
+    private static final int UNKNOWN_TYPE_NUMBER = Integer.MIN_VALUE;
     private static final Logger log = LoggerFactory.getLogger(DatabaseMetadataService.class);
     private static final Object SCHEMA_CRAWLER_COMPATIBILITY_LOCK = new Object();
     private static final String WITHOUT_DATABASE_PLUGIN_PROPERTY = "SC_WITHOUT_DATABASE_PLUGIN";
@@ -264,13 +267,18 @@ public final class DatabaseMetadataService {
         List<ColumnInfo> columns = new ArrayList<ColumnInfo>();
         for (Column column : table.getColumns()) {
             Integer typeNumber = column.getColumnDataType().getJavaSqlType().getVendorTypeNumber();
+            String databaseTypeName = column.getColumnDataType().getDatabaseSpecificTypeName();
             if (typeNumber == null || typeNumber == java.sql.Types.NULL)
                 throw new SchemaLoomException("列缺少有效 JDBC 类型: " + column.getName());
             // Oracle NUMBER 在通用 SchemaCrawler 模式下可能被误报为 BIT。
-            if (typeNumber == java.sql.Types.BIT
-                    && "NUMBER".equalsIgnoreCase(column.getColumnDataType().getDatabaseSpecificTypeName()))
+            if (typeNumber == java.sql.Types.BIT && "NUMBER".equalsIgnoreCase(databaseTypeName))
                 typeNumber = java.sql.Types.NUMERIC;
-            LogicalType logicalType = JdbcTypes.logical(typeNumber);
+            // Oracle 的 BINARY_FLOAT / BINARY_DOUBLE 驱动上报厂商码 100 / 101，SchemaCrawler 未收录，
+            // 归一化成 UNKNOWN；两条路径都拿不到标准码，由 JdbcTypes 按类型名识别。
+            LogicalType logicalType = JdbcTypes.logical(typeNumber, databaseTypeName);
+            if (typeNumber == UNKNOWN_TYPE_NUMBER && logicalType == LogicalType.STRING)
+                log.warn("未识别的列类型，按字符串处理 table={} column={} type={}",
+                        table.getName(), column.getName(), databaseTypeName);
             Integer size = column.getSize();
             Integer length = logicalType == LogicalType.STRING || logicalType == LogicalType.BINARY ? size : null;
             Integer precision = logicalType == LogicalType.DECIMAL ? size : null;
