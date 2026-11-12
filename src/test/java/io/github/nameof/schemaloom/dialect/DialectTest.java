@@ -232,14 +232,28 @@ public class DialectTest {
         // DB2 / DM 的 rename 必须与 quote() 保持同一套大小写约定（quote() 不再改写大小写）
         assertEquals("RENAME TABLE \"DB2SCHEMA\".\"old\" TO \"new\"",
                 registry.get(DatabaseType.DB2).renameTableSql("\"DB2SCHEMA\".\"old\"", "\"DB2SCHEMA\".\"new\""));
+        // Oracle / DM 的 TO 子句不接受 schema 限定名：JdbcTableTarget 传入的正是 quote() 后的全限定名，
+        // 带限定会报 ORA-14047（26ai 实测），这里必须断言限定入参下的输出
+        assertEquals("ALTER TABLE \"SL_TARGET\".\"USER_INFO\" RENAME TO \"USER_INFO_old\"",
+                registry.get(DatabaseType.ORACLE).renameTableSql("\"SL_TARGET\".\"USER_INFO\"", "\"SL_TARGET\".\"USER_INFO_old\""));
         assertEquals("ALTER TABLE \"OLD\" RENAME TO \"NEW\"",
                 registry.get(DatabaseType.ORACLE).renameTableSql("\"OLD\"", "\"NEW\""));
-        assertEquals("ALTER TABLE \"old\" RENAME TO \"new\"",
-                registry.get(DatabaseType.DM).renameTableSql("\"old\"", "\"new\""));
+        assertEquals("ALTER TABLE \"SL_TARGET\".\"old\" RENAME TO \"new\"",
+                registry.get(DatabaseType.DM).renameTableSql("\"SL_TARGET\".\"old\"", "\"SL_TARGET\".\"new\""));
         assertEquals("EXEC sp_rename N'dbo.old', N'new'",
                 registry.get(DatabaseType.SQL_SERVER).renameTableSql("\"dbo\".\"old\"", "\"dbo\".\"new\""));
         assertEquals("ALTER TABLE \"public\".\"old\" RENAME TO \"new\"",
                 registry.get(DatabaseType.KINGBASE).renameTableSql("\"public\".\"old\"", "\"public\".\"new\""));
+    }
+
+    @Test
+    public void stripsOnlyTheTrailingIdentifierAndIgnoresDotsInsideQuotes() {
+        DialectRegistry registry = new DialectRegistry();
+        // 表名里本身带点号时不能被切错（旧实现达梦用 lastIndexOf('.')，会切在引号内的点上）
+        assertEquals("ALTER TABLE \"a.b\".\"old\" RENAME TO \"c.d\"",
+                registry.get(DatabaseType.ORACLE).renameTableSql("\"a.b\".\"old\"", "\"a.b\".\"c.d\""));
+        assertEquals("ALTER TABLE old RENAME TO new",
+                registry.get(DatabaseType.ORACLE).renameTableSql("old", "new"));
     }
 
     @Test

@@ -24,23 +24,6 @@ final class KingbaseDialect extends AbstractDialect {
     }
     @Override protected String generatedColumn(ColumnInfo column) { return super.generatedColumn(column) + " STORED"; }
 
-    @Override public String renameTableSql(String table, String newTable) {
-        return "ALTER TABLE " + table + " RENAME TO " + lastIdentifier(newTable);
-    }
-
-    private String lastIdentifier(String qualified) {
-        boolean quoted = false;
-        int separator = -1;
-        for (int i = 0; i < qualified.length(); i++) {
-            char c = qualified.charAt(i);
-            if (c == '"') {
-                if (quoted && i + 1 < qualified.length() && qualified.charAt(i + 1) == '"') { i++; continue; }
-                quoted = !quoted;
-            } else if (c == '.' && !quoted) separator = i;
-        }
-        return separator < 0 ? qualified : qualified.substring(separator + 1);
-    }
-
     @Override
     public ViewDefinitionQuery viewDefinitionQuery(DatabaseConnectionInfo source, QualifiedTableName view) {
         String schema = view.getSchema() == null ? "public" : view.getSchema();

@@ -11,6 +11,7 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import java.sql.*;
+import java.util.Locale;
 
 import static org.junit.Assert.*;
 
@@ -85,9 +86,7 @@ public class OracleEtlIntegrationTest {
 
         EtlResult result = EtlTask.builder().source(new JdbcTableSource(config, "SCHEMALOOM_SOURCE", loader, 2))
                 .target(new JdbcTableTarget(config, "SCHEMALOOM_TARGET", loader)).targetMode(TargetMode.APPEND).build().run();
-        StringBuilder failures = new StringBuilder();
-        for (EtlError error : result.getErrors()) failures.append(error.getStage()).append(": ").append(error.getMessage()).append("; ");
-        assertEquals(failures.toString(), EtlStatus.SUCCESS, result.getStatus());
+        assertEquals(errorText(result), EtlStatus.SUCCESS, result.getStatus());
         assertEquals(2, result.getWritten());
         EtlResult view = new JdbcViewMigrationTask(config, config, "SCHEMALOOM_SOURCE_VIEW", "SCHEMALOOM_TARGET_VIEW", loader).run();
         assertEquals(String.valueOf(view.getErrors()), EtlStatus.SUCCESS, view.getStatus());
@@ -99,6 +98,102 @@ public class OracleEtlIntegrationTest {
             assertTrue(new DatabaseMetadataService().listTables(verify, new MetadataQuery(null, "SCHEMALOOM", "SCHEMALOOM_TARGET_TMP")).isEmpty());
             rs.close();
         } finally { verify.close(); loader.close(); }
+    }
+
+    /**
+     * REPLACE 模式的换表链路：Oracle 的 RENAME TO 只接受裸表名，
+     * 传入 {@code "SCHEMA"."TABLE"} 会报 ORA-14047（26ai 实测）。
+     *
+     * <p>这里覆盖两条分支：目标表不存在时只做「临时表接位」；目标表已存在时做
+     * 「原表改名备份 → 临时表接位 → 删备份」。用户/schema 可用环境变量覆盖，
+     * 默认沿用本文件其他用例的 SCHEMALOOM。</p>
+     */
+    @Test
+    public void replacesTargetTableThroughQualifiedRename() throws Exception {
+        String password = System.getenv("SCHEMALOOM_IT_ORACLE_PASSWORD");
+        Assume.assumeTrue("set SCHEMALOOM_IT_ORACLE_PASSWORD to run Oracle integration test", password != null);
+        String user = value("SCHEMALOOM_IT_ORACLE_USER", "SCHEMALOOM");
+        // Oracle 未加引号的标识符按大写存储，schema 默认跟随用户名并规范化大写
+        String schema = value("SCHEMALOOM_IT_ORACLE_SCHEMA", user.toUpperCase(Locale.ENGLISH));
+        DatabaseConnectionInfo config = new DatabaseConnectionInfo(DatabaseType.ORACLE,
+                value("SCHEMALOOM_IT_ORACLE_HOST", "localhost"), intValue("SCHEMALOOM_IT_ORACLE_PORT", 11521),
+                value("SCHEMALOOM_IT_ORACLE_DATABASE", "FREEPDB1"), null, schema, user, password,
+                value("SCHEMALOOM_IT_ORACLE_DRIVER_ID", "oracle23"), null);
+        String sourceTable = "SCHEMALOOM_RPL_SRC";
+        String targetTable = "SCHEMALOOM_RPL_TGT";
+        JdbcDriverLoader loader = new JdbcDriverLoader();
+        try {
+            execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE " + sourceTable + " CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+            execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE " + targetTable + " CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+            execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE \"" + targetTable + "_tmp\" CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+            execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE \"" + targetTable + "_old\" CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+            execute(config, loader, "CREATE TABLE " + sourceTable + " (ID NUMBER(10) PRIMARY KEY, NAME VARCHAR2(100))");
+            execute(config, loader, "INSERT INTO " + sourceTable + " VALUES (1, 'alpha')");
+            execute(config, loader, "INSERT INTO " + sourceTable + " VALUES (2, 'beta')");
+
+            // 分支一：目标表不存在，rename 只是把临时表顶上去
+            EtlResult first = EtlTask.builder().source(new JdbcTableSource(config, sourceTable, loader, 2))
+                    .target(new JdbcTableTarget(config, targetTable, loader)).targetMode(TargetMode.REPLACE).build().run();
+            assertEquals(errorText(first), EtlStatus.SUCCESS, first.getStatus());
+            assertEquals(2, rowCount(config, loader, targetTable));
+            assertFalse("换表后不应残留临时表", tableExists(config, loader, targetTable + "_tmp"));
+
+            // 分支二：目标表已存在，需要「备份 → 接位 → 删备份」，并整体替换数据
+            execute(config, loader, "TRUNCATE TABLE " + sourceTable);
+            execute(config, loader, "INSERT INTO " + sourceTable + " VALUES (9, 'omega')");
+            EtlResult second = EtlTask.builder().source(new JdbcTableSource(config, sourceTable, loader, 2))
+                    .target(new JdbcTableTarget(config, targetTable, loader)).targetMode(TargetMode.REPLACE).build().run();
+            assertEquals(errorText(second), EtlStatus.SUCCESS, second.getStatus());
+            assertEquals(1, rowCount(config, loader, targetTable));
+            assertFalse("换表后不应残留临时表", tableExists(config, loader, targetTable + "_tmp"));
+            assertFalse("换表后不应残留备份表", tableExists(config, loader, targetTable + "_old"));
+        } finally {
+            try {
+                execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE " + sourceTable + " CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+                execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE " + targetTable + " CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+                // 提交阶段失败时会保留现场（_tmp / _old），清理掉以免影响下次运行；
+                // 影子表名带小写后缀、以引号形式创建，清理时必须原样加引号，否则会按大写解析而报 ORA-00942
+                execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE \"" + targetTable + "_tmp\" CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+                execute(config, loader, "BEGIN EXECUTE IMMEDIATE 'DROP TABLE \"" + targetTable + "_old\" CASCADE CONSTRAINTS'; EXCEPTION WHEN OTHERS THEN IF SQLCODE != -942 THEN RAISE; END IF; END;");
+            } finally {
+                loader.close();
+            }
+        }
+    }
+
+    private static void execute(DatabaseConnectionInfo config, JdbcDriverLoader loader, String sql) throws Exception {
+        ConnectionProvider provider = loader.connect(config);
+        try (Statement statement = provider.getConnection().createStatement()) {
+            statement.execute(sql);
+        } finally {
+            provider.close();
+        }
+    }
+
+    private static int rowCount(DatabaseConnectionInfo config, JdbcDriverLoader loader, String table) throws Exception {
+        ConnectionProvider provider = loader.connect(config);
+        try (Statement statement = provider.getConnection().createStatement();
+             ResultSet rs = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            assertTrue(rs.next());
+            return rs.getInt(1);
+        } finally {
+            provider.close();
+        }
+    }
+
+    private static boolean tableExists(DatabaseConnectionInfo config, JdbcDriverLoader loader, String table) throws Exception {
+        ConnectionProvider provider = loader.connect(config);
+        try {
+            return !new DatabaseMetadataService().listTables(provider, new MetadataQuery(null, config.getSchema(), table)).isEmpty();
+        } finally {
+            provider.close();
+        }
+    }
+
+    private static String errorText(EtlResult result) {
+        StringBuilder failures = new StringBuilder();
+        for (EtlError error : result.getErrors()) failures.append(error.getStage()).append(": ").append(error.getMessage()).append("; ");
+        return failures.toString();
     }
 
     private static String value(String name, String fallback) { String v = System.getenv(name); return v == null || v.trim().isEmpty() ? fallback : v; }

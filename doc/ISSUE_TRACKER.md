@@ -5,7 +5,7 @@
 **更新规则**：每解决一条，把该条从「待办」移到文末「已解决归档」并标注解决日期；部分解决的留在
 「部分解决」区并写明残余问题。待办区里剩下的，一律是还没动的。
 
-**最后更新**：2026-11-06
+**最后更新**：2026-11-11
 
 ---
 
@@ -14,13 +14,13 @@
 | 分组 | 待办 | 部分解决 | 已解决 | 小计 |
 |---|---|---|---|---|
 | A 数据丢失 / 状态误报 | 4 | 0 | 0 | 4 |
-| B 各数据库特有分支 | 1 | 1 | 7 | 11（含 B6 / B7 已验证非缺陷；新增 B11 Oracle 表名模式） |
+| B 各数据库特有分支 | 1 | 1 | 8 | 12（含 B6 / B7 已验证非缺陷；新增 B11 Oracle 表名模式、B13 Oracle rename 带限定名） |
 | C 类型系统与编解码 | 1 | 0 | 5 | 7（含 C5 已验证非缺陷；新增 C7 Oracle 厂商类型码） |
 | D 性能与资源 | 6 | 0 | 0 | 6 |
 | E 设计与耦合 | 4 | 0 | 2 | 6 |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 4 |
 | G 测试与工具（新增） | 1 | 0 | 1 | 2 |
-| **合计** | **19** | **1** | **17** | **40** |
+| **合计** | **19** | **1** | **18** | **41** |
 
 **建议处理顺序**
 
@@ -126,6 +126,7 @@
 | G1 | `EtlTaskTest#localTest` 连真实 MySQL，类名逃过了 surefire 的 `*IntegrationTest` 排除规则，本机没库时 `mvn test` 永远挂一个假红灯 | 给方法加 `@Ignore`（采用台账给出的第二种修法）。注意：**未改名为 `*IntegrationTest`**，用例仍留在 `EtlTaskTest` 里，只是不再执行 | 2026-11-04 |
 | C3 | `Types.FLOAT → FLOAT32` 把双精度列降级成单精度。**原判断的受害库搞错了** —— SQL Server 的 `float` 实际上报 `Types.DOUBLE(8)`、`float(24)`/`real` 上报 `REAL(7)`，不受影响；真正的受害库是**达梦**（`FLOAT` 上报 6，双精度）和 **Oracle**（`FLOAT` 上报 6，二进制精度 126 位） | `JdbcTypes#logical` 改为 `Types.FLOAT → FLOAT64`、`Types.REAL → FLOAT32`（与 JDBC 规范一致：FLOAT 对应 double）。达梦实测：修复前 `FLOAT` 存 `1.23456789012345` 读回 `1.2345679`（Float），修复后读回 `1.23456789012345`（Double），`REAL` 仍为 `1.2345679`。新增单测 `JdbcTypesTest#mapsFloatToFloat64` | 2026-11-06 |
 | C6 | null 绑定沿用**源列**的 `jdbcType` 调 `setNull`，跨库时源类型码在目标驱动上非法 | 改为按「逻辑类型在目标方言下的类型码」绑定：`nullSqlType(field)` 取 `dialect.mapping(...).degradesTo()`（无降级则用逻辑类型本身）对应的 JDBC 码。实测各目标库对全套逻辑类型标准码只有 DB2 拒绝 2013（已有降级逻辑覆盖）。回归：PG `uuid`(1111) → Oracle、SQL Server `nvarchar`(-9) → PostgreSQL 两条链路由失败转成功 | 2026-11-06 |
+| B13 | `OracleDialect` 没有覆盖 `renameTableSql`，落到 `AbstractDialect` 的默认实现（新名原样拼接全限定名）。而 `JdbcTableTarget` 传的正是 `quote()` 后的 `"SCHEMA"."TABLE"` → Oracle 的 `RENAME TO` 只接受裸表名，REPLACE 换表必报 **ORA-14047**（"ALTER TABLE\|INDEX RENAME 不能与其他分区组合"，措辞误导，实为语法拒绝），临时表接位与备份/回滚三步全部失效 | 默认实现改为「新名只取最后一段」（`lastIdentifier`），Oracle 因此自动继承正确行为；同时把分散在 `PostgreSqlDialect` / `KingbaseDialect` / `Db2Dialect` 的三份 `lastIdentifier` 副本和 `DmDialect#extractTableName`（不识别引号内的点号）全部下沉到 `AbstractDialect`，Pg / Kingbase / 达梦删除各自的重复 override。`DialectTest` 的 rename 断言改用**限定名入参**（原用例只传裸名，正好绕开 `JdbcTableTarget` 的真实调用形态，所以一直没被抓到） | 2026-11-11（Oracle 26ai Free 23.26 实机复现 + 端到端验证，见第五节） |
 
 ### 已验证非缺陷（实机推翻原判断）
 
@@ -236,6 +237,21 @@ mvn -o -Pintegration test \
 | E3 回归（自查发现） | PostgreSQL 上 `fromConnectionInfo` 把 database 当 catalog 后，精确表名查询命中 **0** 条（`(null,null,表名)` 命中 1 条，全库 10 条）→ 目标表被判为不存在、重复建表失败 | E3 引入的回归，已修：PG 分支只透传显式 catalog |
 | B11 / Oracle | `listTables` 逐模式实测：`%` → 12 张，`SL%` / `SL_FLOAT_PROBE` / `%FLOAT%` 全部 **0** 张（表确实存在，sqlplus 可查） | 新问题，见 B11，未修 |
 | C7 / Oracle | `DatabaseMetaData#getColumns` 实测 `BINARY_FLOAT` DATA_TYPE=**100**、`BINARY_DOUBLE`=**101**，SchemaCrawler 同样返回厂商码 | 新问题，见 C7，未修 |
+
+---
+
+### 2026-11-11 追加（B13 / Oracle REPLACE rename）
+
+现场：Oracle 作为目标库、`TargetMode.REPLACE` 在 `stage=commit-target` 失败，`ALTER TABLE "SL_TARGET"."USER_INFO_tmp" RENAME TO "SL_TARGET"."USER_INFO"` 报 `ORA-14047`。
+
+| 验证项 | 命令 / 方式 | 结果 |
+|---|---|---|
+| 语法定性 | `schema-loom-oracle-it`（26ai Free 23.26）内 sqlplus：`alter table "SL_SOURCE"."ZZ_RN_TMP" rename to "SL_SOURCE"."ZZ_RN"` vs `... rename to "ZZ_RN"` | 前者 **ORA-14047**，后者 `Table altered` → 根因确认为「新名不能带 schema 限定」，与分区无关 |
+| 正向端到端 | `OracleEtlIntegrationTest#replacesTargetTableThroughQualifiedRename`（`SCHEMALOOM_IT_ORACLE_USER=sl_target`，schema `SL_TARGET`，端口 1521） | `SUCCESS`。分支一（目标表不存在）2 行、分支二（目标表已存在，走备份→接位→删备份）整体替换为 1 行；`_tmp` / `_old` 均无残留 |
+| 反向验证 | 把 `AbstractDialect#renameTableSql` 临时回退成拼接全限定名，重跑同一用例 | 报 `commit-target: JDBC rename replacement target table failed`，与线上现场完全一致 → 用例确实抓得住该缺陷 |
+| 达梦 / DB2 回归 | `DmIntegrationTest`、`Db2IntegrationTest` | 均通过（两者改用了下沉后的 `lastIdentifier`，rename 输出与改动前一致） |
+| 单测 | `mvn test` | 142 项通过，1 项跳过；`DialectTest` 新增 `stripsOnlyTheTrailingIdentifierAndIgnoresDotsInsideQuotes` |
+| 现场残留 | `SL_TARGET.USER_INFO_tmp`（3 行，失败时按 `settleReplace` 保留） | **未动**，需人工确认后 `DROP TABLE "SL_TARGET"."USER_INFO_tmp"` 或直接改名为正式表 |
 
 ---
 

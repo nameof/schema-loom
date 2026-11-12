@@ -188,9 +188,43 @@ abstract class AbstractDialect implements DatabaseDialect {
         return "DROP TABLE " + table;
     }
 
+    /**
+     * <p>改表名传入全限定名 {@code "SCHEMA"."TABLE"} 会被几种数据库语法拒绝，因为语义是不能更改表的归属，只能改表名
+     * （Oracle 报 ORA-14047，26ai 实测）。</p>
+     *
+     * <p><b>Oracle、PostgreSQL、Kingbase、达梦直接用本实现</b>（语法均为 {@code ALTER TABLE ... RENAME TO}，需提取裸表名）</p>
+     *
+     * <p><b>必须自行实现</b>：</p>
+     * <ul>
+     *   <li>DB2 —— 语法是 {@code RENAME TABLE t TO n}，不是 {@code ALTER TABLE ... RENAME TO}；</li>
+     *   <li>SQL Server —— 走 {@code EXEC sp_rename}，且对象名不接受三段名，需自行归一；</li>
+     *   <li>MySQL / MariaDB / GBase 8a —— {@code RENAME TO} 允许新名带限定名并视作跨库搬家，
+     *       这是本实现有意不提供的语义，故各自保留完整新名。</li>
+     * </ul>
+     */
     @Override
     public String renameTableSql(String table, String newTable) {
-        return "ALTER TABLE " + table + " RENAME TO " + newTable;
+        return "ALTER TABLE " + table + " RENAME TO " + lastIdentifier(newTable);
+    }
+
+    /**
+     * 从限定名中取出最后一段标识符，跳过引号内的点号与转义引号。
+     *
+     * <p>例如 {@code "SL_TARGET"."USER_INFO"} → {@code "USER_INFO"}；
+     * {@code "a.b"."c"} → {@code "c"}，而不会被表名中的点号切错。</p>
+     */
+    protected String lastIdentifier(String qualified) {
+        boolean quoted = false;
+        int separator = -1;
+        char quote = quoteChar().charAt(0);
+        for (int i = 0; i < qualified.length(); i++) {
+            char c = qualified.charAt(i);
+            if (c == quote) {
+                if (quoted && i + 1 < qualified.length() && qualified.charAt(i + 1) == quote) { i++; continue; }
+                quoted = !quoted;
+            } else if (c == '.' && !quoted) separator = i;
+        }
+        return separator < 0 ? qualified : qualified.substring(separator + 1);
     }
 
     @Override
