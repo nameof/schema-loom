@@ -124,4 +124,24 @@ public class XlsxBoundaryTest {
     public void rejectsNonPositiveBatchSize() throws Exception {
         new XlsxSource(Files.createTempFile("schemaloom-xlsx-batch", ".xlsx"), "Sheet1", null, 0);
     }
+
+    @Test
+    public void keepsExistingWorkbookWhenReplaceIsNotCommitted() throws Exception {
+        Path file = Files.createTempFile("schemaloom-xlsx-abort", ".xlsx");
+        RecordSchema schema = new RecordSchema(Collections.singletonList(FieldSchema.of("id", LogicalType.INT32)));
+        XlsxTarget first = new XlsxTarget(file);
+        first.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
+        first.write(new RecordBatch(schema, Collections.singletonList(new DataRecord(schema, Collections.<Object>singletonList(1)))));
+        first.close();
+        byte[] committed = Files.readAllBytes(file);
+
+        XlsxTarget second = new XlsxTarget(file);
+        second.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
+        second.write(new RecordBatch(schema, Collections.singletonList(new DataRecord(schema, Collections.<Object>singletonList(2)))));
+        // 读取阶段失败：close(false) 放弃提交，正式文件必须保持原样。
+        second.close(false);
+
+        assertArrayEquals(committed, Files.readAllBytes(file));
+        assertTrue(Files.exists(file.resolveSibling(file.getFileName() + ".part")));
+    }
 }

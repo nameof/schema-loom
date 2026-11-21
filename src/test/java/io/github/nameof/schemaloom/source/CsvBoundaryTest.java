@@ -92,6 +92,25 @@ public class CsvBoundaryTest {
         assertEquals(Arrays.asList("id,name", "1,一", "2,二"), Files.readAllLines(file, StandardCharsets.UTF_8));
     }
 
+    @Test
+    public void keepsExistingFileWhenReplaceIsNotCommitted() throws Exception {
+        Path file = Files.createTempFile("schemaloom-target-abort", ".csv");
+        RecordSchema schema = new RecordSchema(Arrays.asList(FieldSchema.of("id", LogicalType.INT32), FieldSchema.of("name", LogicalType.STRING)));
+        CsvTarget first = new CsvTarget(file);
+        first.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
+        first.write(batch(schema, 1, "一"));
+        first.close();
+
+        CsvTarget second = new CsvTarget(file);
+        second.prepare(SchemaDescriptor.of(schema), TargetMode.REPLACE);
+        second.write(batch(schema, 2, "二"));
+        // 读取阶段失败：close(false) 放弃提交，正式文件必须保持原样。
+        second.close(false);
+
+        assertEquals(Arrays.asList("id,name", "1,一"), Files.readAllLines(file, StandardCharsets.UTF_8));
+        assertTrue(Files.exists(file.resolveSibling(file.getFileName() + ".part")));
+    }
+
     @Test(expected = IllegalArgumentException.class)
     public void rejectsNonStandardValueBeforeSerialization() throws Exception {
         Path file = Files.createTempFile("schemaloom-partial", ".csv");

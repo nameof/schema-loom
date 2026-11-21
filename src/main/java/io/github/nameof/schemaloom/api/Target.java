@@ -19,6 +19,20 @@ public interface Target extends AutoCloseable {
 
     BatchWriteResult write(RecordBatch batch);
 
+    /**
+     * 关闭目标并声明本次写入是否提交。
+     *
+     * <p>commit 为 true 表示本次写入完整、任务未崩溃，带两阶段语义的实现（JDBC {@code REPLACE}
+     * 临时表、CSV / XLSX 的 {@code .part}）应完成「换表 / 覆盖正式文件」；commit 为 false 只做
+     * 资源清理，保留已有数据。没有两阶段语义的实现可以忽略 commit（默认转发给 {@link #close()}）。</p>
+     *
+     * <p>重写本方法的实现不得反过来调用 {@link #close()}，否则会无限递归；
+     * 应由 {@link #close()} 一行委托 {@code close(true)} 保持「直接调用方 close 即提交」。</p>
+     */
+    default void close(boolean commit) {
+        close();
+    }
+
     @Override
     void close();
 }

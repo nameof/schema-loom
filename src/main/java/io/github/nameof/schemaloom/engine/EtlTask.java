@@ -135,7 +135,15 @@ public final class EtlTask implements Callable<EtlResult> {
             filtered = filteredCounter[0];
             written = writtenCounter[0];
             failed = failedCounter[0];
-            if (failed > 0) {
+            // 读到一半就结束而源声称还有数据，说明读取被截断：任务判失败
+            if (total >= 0 && read < total) {
+                status = EtlStatus.FAILED;
+                addError(errors, new EtlError(read, "read", new SchemaLoomException(
+                        "read " + read + " of " + total + " expected rows, target commit skipped")));
+                log.warn("ETL任务读取行数少于预期，任务判失败 runId={} expected={} read={}", runId, total, read);
+            }
+            // 带 status == SUCCESS 守卫：读取截断已判 FAILED 的任务不能被行级失败改判回 PARTIAL。
+            if (status == EtlStatus.SUCCESS && failed > 0) {
                 status = written > 0 ? EtlStatus.PARTIAL : EtlStatus.FAILED;
             }
         } catch (Throwable e) {
@@ -154,12 +162,18 @@ public final class EtlTask implements Callable<EtlResult> {
                         LoggingSupport.safe(e));
             }
         } finally {
+            // 只有任务整体成功（SUCCESS/PARTIAL，即读完整且未崩溃）才提交目标；
+            // FAILED/CANCELLED 只以 close(false) 关闭，目标保留已有数据。
+            boolean commit = status == EtlStatus.SUCCESS || status == EtlStatus.PARTIAL;
             try {
-                if (target != null) target.close();
+                if (target != null) target.close(commit);
             } catch (Throwable e) {
-                addError(errors, new EtlError(read, "close-target", e));
+                addError(errors, new EtlError(readCounter[0], "close-target", e));
                 log.error("目标资源关闭失败 runId={} cleanupFailed=true message={}", runId,
                         LoggingSupport.message(e), LoggingSupport.safe(e));
+                // 提交路径（含 REPLACE 换表）失败说明目标并没有换成新数据，状态必须如实反映，
+                // 否则调用方只看 status 会误认为迁移成功；仅清理路径失败不降级，不遮蔽 CANCELLED。
+                if (commit) status = EtlStatus.FAILED;
             }
             try {
                 if (source != null) source.close();
@@ -172,10 +186,10 @@ public final class EtlTask implements Callable<EtlResult> {
         Instant ended = Instant.now();
         ReadStatistics readStatistics = source instanceof ReadStatisticsProvider
                 ? ((ReadStatisticsProvider) source).getReadStatistics()
-                : new ReadStatistics(read, 0, Collections.<String, Long>emptyMap());
+                : new ReadStatistics(read, 0, Collections.emptyMap());
         WriteStatistics writeStatistics = target instanceof WriteStatisticsProvider
                 ? ((WriteStatisticsProvider) target).getWriteStatistics()
-                : new WriteStatistics(written, 0, failed, Collections.<String, Long>emptyMap());
+                : new WriteStatistics(written, 0, failed, Collections.emptyMap());
         EtlResult result = new EtlResult(status, read, transformed, filtered, written, failed, start, ended, errors,
                 readStatistics, writeStatistics);
         log.info("ETL任务结束 runId={} status={} elapsedMs={} read={} transformed={} filtered={} written={} failed={}",

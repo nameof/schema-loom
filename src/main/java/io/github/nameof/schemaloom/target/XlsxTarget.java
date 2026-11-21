@@ -18,7 +18,8 @@ public final class XlsxTarget implements Target {
     private RecordSchema schema;
     private Path part;
     private int rows;
-    private boolean failed;
+    /** 本目标发生过写入异常，close 时禁止提交，防止部分数据覆盖正式文件。 */
+    private boolean writeFailed;
     private final int maxRowsPerSheet;
 
     public XlsxTarget(Path path) {
@@ -38,7 +39,7 @@ public final class XlsxTarget implements Target {
         if (mode != TargetMode.REPLACE) throw new IllegalArgumentException("XLSX supports REPLACE only");
         schema = descriptor.getSchema();
         part = path.resolveSibling(path.getFileName() + ".part");
-        failed = false;
+        writeFailed = false;
         writer = ExcelUtil.getBigWriter(part.toFile(), "Sheet1");
         writer.writeHeadRow(names());
         rows = 1;
@@ -72,27 +73,35 @@ public final class XlsxTarget implements Target {
                     LoggingSupport.currentRunId(), path.getFileName(), b.size());
             return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
-            failed = true;
+            writeFailed = true;
             log.warn("XLSX 写入失败 runId={} file={} partialPreserved={} message={}",
                     LoggingSupport.currentRunId(), path.getFileName(), part != null, LoggingSupport.message(e));
             throw new SchemaLoomException("cannot write XLSX", e);
         }
     }
 
-    /** 正常关闭时将 .part 替换为最终 XLSX 文件；写入失败时保留 .part。 */
+    /** 直接调用方 close 即提交（AutoCloseable 契约不变）。 */
     public void close() {
+        close(true);
+    }
+
+    /** 关闭工作簿；commit 为 false 或本目标发生过异常时保留 .part，否则用 .part 替换正式文件。 */
+    public void close(boolean commit) {
         if (writer == null) return;
         BigExcelWriter current = writer;
         try {
             current.close();
             writer = null;
-            if (!failed)
+            if (commit && !writeFailed)
                 Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
-            log.info("XLSX 目标关闭完成 runId={} file={} failed={}", LoggingSupport.currentRunId(), path.getFileName(), failed);
+            log.info("XLSX 目标关闭完成 runId={} file={}", LoggingSupport.currentRunId(), path.getFileName());
         } catch (IOException e) {
             writer = null;
             throw new SchemaLoomException("cannot close XLSX", e);
         }
+        if (!commit)
+            log.warn("XLSX 目标未提交，保留部分文件 runId={} file={} part={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), part.getFileName());
     }
 
 }

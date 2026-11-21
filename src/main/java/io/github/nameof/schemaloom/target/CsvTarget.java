@@ -96,14 +96,19 @@ public final class CsvTarget implements Target {
         }
     }
 
-    /** 正常关闭时将 .part 原子替换为目标文件；写入失败时 .part 已被保留。 */
+    /** 直接调用方 close 即提交（AutoCloseable 契约不变）。 */
     public void close() {
+        close(true);
+    }
+
+    /** 关闭写入器；commit 为 true 时用 .part 原子替换目标文件，否则保留 .part。 */
+    public void close(boolean commit) {
         if (writer == null) return;
         Writer current = writer;
         try {
             current.close();
             writer = null;
-            if (part != null) {
+            if (part != null && commit) {
                 try {
                     Files.move(part, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
                 } catch (AtomicMoveNotSupportedException e) {
@@ -118,6 +123,9 @@ public final class CsvTarget implements Target {
         } finally {
             writer = null;
         }
+        if (part != null && !commit)
+            log.warn("CSV 目标未提交，保留部分文件 runId={} file={} part={}",
+                    LoggingSupport.currentRunId(), path.getFileName(), part.getFileName());
     }
 
     /** 保留未完成的 .part 文件供排查和人工恢复。 */

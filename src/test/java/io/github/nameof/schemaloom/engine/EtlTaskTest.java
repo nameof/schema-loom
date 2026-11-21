@@ -180,6 +180,173 @@ public class EtlTaskTest {
 
 
     @Test
+    public void commitsTargetOnlyAfterCompleteRead() {
+        RecordSchema s = schema();
+        RecordingTarget target = new RecordingTarget();
+        EtlResult r = EtlTask.builder().source(new MemorySource(s, rows(s), 2)).target(target).build().run();
+        assertEquals(EtlStatus.SUCCESS, r.getStatus());
+        assertTrue("完整读取后必须以提交语义关闭目标", target.committed);
+        assertTrue(target.closed);
+    }
+
+    @Test
+    public void skipsCommitWhenSourceReadFails() {
+        RecordSchema s = schema();
+        RecordingTarget target = new RecordingTarget();
+        EtlResult r = EtlTask.builder().source(failingSource(s, 3)).target(target).build().run();
+        assertEquals(EtlStatus.FAILED, r.getStatus());
+        assertFalse("源读取失败时不得提交目标", target.committed);
+        assertTrue(target.closed);
+    }
+
+    @Test
+    public void skipsCommitWhenReadFewerRowsThanDeclared() {
+        RecordSchema s = schema();
+        RecordingTarget target = new RecordingTarget();
+        // 源声称有 5 行，实际只读到 2 行就正常结束：等价于读取被截断。
+        EtlResult r = EtlTask.builder().source(new Source() {
+            public SchemaDescriptor schema() { return SchemaDescriptor.of(s); }
+
+            public long count() { return 5; }
+
+            public void read(BatchConsumer consumer) {
+                consumer.accept(new RecordBatch(s, rows(s).subList(0, 2)));
+            }
+
+            public void close() { }
+        }).target(target).build().run();
+        assertEquals(EtlStatus.FAILED, r.getStatus());
+        assertFalse("读到一半不得提交目标", target.committed);
+        assertEquals("read", r.getErrors().get(0).getStage());
+    }
+
+    @Test
+    public void partialStatusStillCommits() {
+        RecordSchema s = schema();
+        RecordingTarget target = new RecordingTarget();
+        EtlResult r = EtlTask.builder().source(new MemorySource(s, rows(s), 3)).target(target).transformer(new Transformer() {
+            public TransformResult transform(DataRecord x) {
+                if (((Integer) x.get("id")) == 2) throw new IllegalStateException("bad row");
+                return TransformResult.keep(x);
+            }
+        }).build().run();
+        assertEquals(EtlStatus.PARTIAL, r.getStatus());
+        assertTrue("行级失败但任务未崩溃（PARTIAL）时保持提交语义", target.committed);
+        assertTrue(target.closed);
+    }
+
+    @Test
+    public void cancelledDoesNotCommit() {
+        RecordSchema s = schema();
+        final RecordingTarget target = new RecordingTarget();
+        // read 中自中断并抛 interrupted，确定性触发 EtlTask 的中断判定，不依赖真实线程取消。
+        EtlResult r = EtlTask.builder().source(new Source() {
+            public SchemaDescriptor schema() { return SchemaDescriptor.of(s); }
+
+            public long count() { return 3; }
+
+            public void read(BatchConsumer consumer) {
+                Thread.currentThread().interrupt();
+                throw new SchemaLoomException("interrupted");
+            }
+
+            public void close() { }
+        }).target(target).build().run();
+        try {
+            assertEquals(EtlStatus.CANCELLED, r.getStatus());
+            assertFalse("任务被中断时不得提交目标", target.committed);
+            assertTrue(target.closed);
+        } finally {
+            Thread.interrupted();   // 清除中断标志，避免污染其他用例
+        }
+    }
+
+    @Test
+    public void unknownTotalStillCommits() {
+        RecordSchema s = schema();
+        final RecordingTarget target = new RecordingTarget();
+        // count() 返回 -1（总数未知）：跳过读少检查，读完全部行即视为完整。
+        EtlResult r = EtlTask.builder().source(new Source() {
+            public SchemaDescriptor schema() { return SchemaDescriptor.of(s); }
+
+            public long count() { return -1; }
+
+            public void read(BatchConsumer consumer) {
+                consumer.accept(new RecordBatch(s, rows(s)));
+            }
+
+            public void close() { }
+        }).target(target).build().run();
+        assertEquals(EtlStatus.SUCCESS, r.getStatus());
+        assertTrue("总数未知时按提交语义关闭目标", target.committed);
+        assertTrue(target.closed);
+    }
+
+    @Test
+    public void writeFailureFailFastDoesNotCommit() {
+        RecordSchema s = schema();
+        RecordingTarget target = new RecordingTarget();
+        target.failOnWrite = true;
+        EtlResult r = EtlTask.builder().source(new MemorySource(s, rows(s), 3)).target(target)
+                .errorPolicy(ErrorPolicy.FAIL_FAST).build().run();
+        assertEquals(EtlStatus.FAILED, r.getStatus());
+        assertFalse("写入失败（FAIL_FAST）时不得提交目标", target.committed);
+        assertEquals("write", r.getErrors().get(0).getStage());
+    }
+
+    @Test
+    public void closeFailureTurnsSuccessIntoFailed() {
+        RecordSchema s = schema();
+        RecordingTarget target = new RecordingTarget();
+        target.failOnClose = true;
+        EtlResult r = EtlTask.builder().source(new MemorySource(s, rows(s), 2)).target(target).build().run();
+        assertEquals("关闭失败意味着目标没有落地，状态不能报成功", EtlStatus.FAILED, r.getStatus());
+        assertEquals("close-target", r.getErrors().get(0).getStage());
+    }
+
+    private Source failingSource(final RecordSchema s, final long declared) {
+        return new Source() {
+            public SchemaDescriptor schema() { return SchemaDescriptor.of(s); }
+
+            public long count() { return declared; }
+
+            public void read(BatchConsumer consumer) {
+                consumer.accept(new RecordBatch(s, rows(s).subList(0, 1)));
+                throw new SchemaLoomException("simulated read failure");
+            }
+
+            public void close() { }
+        };
+    }
+
+    /** 记录 close(commit) 收到的提交语义与关闭是否被调用的目标桩，用于校验 EtlTask 的提交决策。 */
+    private static final class RecordingTarget implements Target {
+        private Boolean committed;
+        private boolean closed;
+        private boolean failOnClose;
+        private boolean failOnWrite;
+
+        public List<EtlError> prepare(SchemaDescriptor descriptor, TargetMode mode) {
+            return Collections.emptyList();
+        }
+
+        public BatchWriteResult write(RecordBatch batch) {
+            if (failOnWrite) throw new SchemaLoomException("simulated write failure");
+            return new BatchWriteResult(batch.size(), 0);
+        }
+
+        public void close(boolean commit) {
+            closed = true;
+            committed = commit;
+            if (failOnClose) throw new SchemaLoomException("simulated close failure");
+        }
+
+        public void close() {
+            close(true);
+        }
+    }
+
+    @Test
     @Ignore
     public void localTest() throws Exception {
         DatabaseConnectionInfo sourceConfig = new DatabaseConnectionInfo(

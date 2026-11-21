@@ -18,8 +18,10 @@ import java.util.*;
  *
  * <p>目标表不存在时，{@link #prepare} 会依据 Source
  * Schema 自动生成普通表；目标已存在时，{@code APPEND} 只在结构兼容时追加，
- * {@code REPLACE} 会先写入 {@code <目标表>_tmp}，成功后通过 rename 切换；失败时保留原目标表。
- * </p>
+ * {@code REPLACE} 会先写入 {@code <目标表>_tmp}，在关闭时通过
+ * {@link #close(boolean) close(commit)} 完成换表（原表先改名为 {@code <目标表>_old}，
+ * 临时表接位成功后再删除备份）；commit 为 false（任务失败或不完整）或本目标发生过异常时，
+ * 只清理临时表、保留原目标表。</p>
  *
  * <p>VIEW：只能作为数据只读来源，不能作为 Target 的写入对象。若Target对象已经是 VIEW，准备阶段会失败；
  * 需要在目标库创建 VIEW 定义时，应使用独立的 {@code JdbcViewMigrationTask}，而不是把 VIEW 当普通表写入数据。</p>
@@ -39,7 +41,8 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private TableInfo tableInfo;
     private boolean prepared;
     private boolean replaceMode;
-    private boolean targetWriteFailed;
+    /** 本目标发生过异常（准备或写入阶段），close 时禁止提交，防止部分数据替换原表。 */
+    private boolean writeFailed;
     /** 实际写入的表（REPLACE 模式下是临时表）是否存在需要显式插入的自增列，决定是否需要 IDENTITY_INSERT。 */
     private boolean writeTableHasIdentity;
     private QualifiedTableName writeTable;
@@ -81,7 +84,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         if (descriptor == null) throw new IllegalArgumentException("schema descriptor is required");
         schema = descriptor.getSchema();
         replaceMode = mode == TargetMode.REPLACE;
-        targetWriteFailed = false;
+        writeFailed = false;
         temporaryCreated = false;
         tableInfo = descriptor.getTableInfo();
         writeSchema = writableSchema(schema, tableInfo);
@@ -98,7 +101,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             writeTable = replaceMode ? temporaryTable() : table;
             String q = dialect.quote(writeTable);
             if (replaceMode) {
-                dropTemporaryIfPresent();
+                dropIfPresent(writeTable, "drop temporary target table");
                 temporaryCreated = true;
                 exists = false;
             }
@@ -124,7 +127,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
             preparationErrors.clear();
             return errors;
         } catch (RuntimeException e) {
-            targetWriteFailed = true;
+            writeFailed = true;
             throw e;
         }
     }
@@ -133,10 +136,19 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return new QualifiedTableName(table.getCatalog(), table.getSchema(), table.getTable() + "_tmp");
     }
 
-    private void dropTemporaryIfPresent() {
-        List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
-                MetadataQuery.fromConnectionInfo(connectionInfo, temporaryTable()));
-        if (!tables.isEmpty()) execution.execute("drop temporary target table", dialect.dropTableSql(dialect.quote(writeTable)));
+    /** REPLACE 提交时原表的临时落脚名：换表成功后删除，失败时它就是原数据的保底副本。 */
+    private QualifiedTableName backupTable() {
+        return new QualifiedTableName(table.getCatalog(), table.getSchema(), table.getTable() + "_old");
+    }
+
+    private boolean exists(QualifiedTableName name) {
+        return !new DatabaseMetadataService().listTables(provider,
+                MetadataQuery.fromConnectionInfo(connectionInfo, name)).isEmpty();
+    }
+
+    private void dropIfPresent(QualifiedTableName name, String stage) {
+        if (exists(name))
+            execution.execute(stage, dialect.dropTableSql(dialect.quote(name)));
     }
 
     /** 按名称和完整定义比较索引；等价索引直接跳过，冲突按结构策略处理。 */
@@ -231,7 +243,7 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
                     LoggingSupport.currentRunId(), writeTable.getTable(), b.size());
             return new BatchWriteResult(b.size(), 0);
         } catch (RuntimeException e) {
-            targetWriteFailed = true;
+            writeFailed = true;
             log.warn("JDBC目标批次写入失败 runId={} table={} rows={} message={}",
                     LoggingSupport.currentRunId(), writeTable.getTable(), b.size(), LoggingSupport.message(e));
             throw e;
@@ -306,29 +318,82 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return LogicalTypeCatalog.get(target == null ? field.getLogicalType() : target).jdbcSqlType();
     }
 
+    /** 直接调用方 close 即提交（AutoCloseable 契约不变）。 */
     public void close() {
+        close(true);
+    }
+
+    /**
+     * 关闭目标。REPLACE 模式下根据 commit 决定是否换表提交。
+     *
+     * <p>commit 为 false（任务失败或不完整）、本目标发生过异常（writeFailed）、或未成功 prepare 时，
+     * 只删除临时表、保留原目标表；否则执行「原表改名备份 → 临时表接位 → 删除备份」的两阶段换表，
+     * 任何一步失败都不会同时丢掉原表与新数据。</p>
+     *
+     * <p>极端场景说明：prepare 抛出非 RuntimeException 的 Throwable（如 Error）时 writeFailed
+     * 不会置位，捕获后仍以提交语义关闭的直接调用方应自行确认写入完整性。</p>
+     */
+    public void close(boolean commit) {
         try {
-            // 替换模式：写入失败时直接删除临时表，成功则将目标表替换为临时表
             if (replaceMode && temporaryCreated) {
-                try {
-                    if (targetWriteFailed || !prepared) {
-                        dropTemporaryIfPresent();
-                    } else {
-                        List<TableInfo> tables = new DatabaseMetadataService().listTables(provider,
-                                MetadataQuery.fromConnectionInfo(connectionInfo, table));
-                        if (!tables.isEmpty())
-                            execution.execute("drop replaced target table", dialect.dropTableSql(dialect.quote(table)));
-                        execution.execute("rename replacement target table", dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
-                        log.info("JDBC目标替换完成 runId={} table={}", LoggingSupport.currentRunId(), table.getTable());
+                if (commit && !writeFailed) {
+                    swapReplace();
+                } else {
+                    try {
+                        dropIfPresent(writeTable, "drop temporary target table");
+                        temporaryCreated = false;
+                        log.info("REPLACE 未提交，已清理临时表 runId={} table={}", LoggingSupport.currentRunId(), table.getTable());
+                    } catch (RuntimeException e) {
+                        log.warn("REPLACE 未提交，临时表清理失败 runId={} temporary={} message={}",
+                                LoggingSupport.currentRunId(), writeTable.getTable(), LoggingSupport.message(e));
                     }
-                } catch (RuntimeException e) {
-                    targetWriteFailed = true;
-                    try { dropTemporaryIfPresent(); } catch (RuntimeException ignored) { }
-                    throw e;
                 }
             }
         } finally {
             provider.close();
+        }
+    }
+
+    /**
+     * 两阶段换表：原表改名 {@code _old} → 临时表接位 → 删除 {@code _old}。
+     *
+     * <p>第一步失败时原表与临时表都还在；第二步失败时把 {@code _old} 改回原名、临时表保留；
+     * 第三步失败只残留一份备份，不影响已提交的数据。任何一步都不先删原表，避免「双丢」。</p>
+     */
+    private void swapReplace() {
+        QualifiedTableName backup = backupTable();
+        if (exists(backup))
+            throw new SchemaLoomException("备份表已存在，请确认其数据后手动删除或改名再重试: " + backup.getTable());
+        boolean hasTarget = exists(table);
+        if (hasTarget)
+            execution.execute("rename replaced target table",
+                    dialect.renameTableSql(dialect.quote(table), dialect.quote(backup)));
+        try {
+            execution.execute("rename replacement target table",
+                    dialect.renameTableSql(dialect.quote(writeTable), dialect.quote(table)));
+        } catch (RuntimeException e) {
+            if (hasTarget) {
+                try {
+                    execution.execute("restore replaced target table",
+                            dialect.renameTableSql(dialect.quote(backup), dialect.quote(table)));
+                    log.warn("REPLACE 切换失败，原表已恢复 runId={} temporary={}（临时表保留，可人工改用）",
+                            LoggingSupport.currentRunId(), writeTable.getTable());
+                } catch (RuntimeException r) {
+                    log.error("REPLACE 切换失败且原表回滚失败，需人工恢复 runId={} backup={} temporary={} message={}",
+                            LoggingSupport.currentRunId(), backup.getTable(), writeTable.getTable(), LoggingSupport.message(r));
+                }
+            }
+            throw e;
+        }
+        temporaryCreated = false;
+        log.info("JDBC目标替换完成 runId={} table={}", LoggingSupport.currentRunId(), table.getTable());
+        if (hasTarget) {
+            try {
+                execution.execute("drop replaced target table", dialect.dropTableSql(dialect.quote(backup)));
+            } catch (RuntimeException e) {
+                log.warn("REPLACE 已提交，但备份表删除失败 runId={} backup={} message={}，可手动删除",
+                        LoggingSupport.currentRunId(), backup.getTable(), LoggingSupport.message(e));
+            }
         }
     }
 
