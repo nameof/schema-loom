@@ -66,6 +66,8 @@ JDBC Source 与 Target 在内部通过 Spring JDBC 执行适配层统一管理�
 
 `EtlResult` 的状态为 `SUCCESS`、`PARTIAL`、`FAILED` 或 `CANCELLED`；错误摘要最多保留 100 条，并对常见密码字段做脱敏处理。
 
+提交是失败安全的一侧：只有源声明的行数全部读到、且目标提交成功才可能是 `SUCCESS`。源读取抛异常、任务被中断、读到的行数少于 `count()` 声明的值，都会以 `close(false)` 关闭目标放弃提交并把状态记为 `FAILED`——`REPLACE` 因此不会用半份数据替换正式表。
+
 ### 元数据与 JDBC 驱动隔离
 
 - `DatabaseMetadataService` 提供数据库、Catalog、Schema、表、列、主键、外键、索引和注释等中立 DTO。
@@ -95,6 +97,7 @@ Source.schema()
     -> Transformer
     -> FieldMapping
     -> Target.write(batch)
+    -> Target.close(commit) // 提交点：commit = 状态为 SUCCESS/PARTIAL；两阶段目标据此换表 / 覆盖正式文件，否则只清理
     -> EtlResult
 ```
 
@@ -215,7 +218,7 @@ List<DataRecord> sample = tableSource.preview(200);    // 上限为 MAX_PREVIEW_
 SchemaLoom 将 VIEW 分为“读取数据”和“迁移视图定义”两种独立场景：
 
 - `JdbcTableSource` 可以读取 TABLE 或 VIEW。VIEW 只作为只读查询来源，不会复制其底层表结构。
-- `JdbcTableTarget` 始终表示普通目标表。目标表不存在时，会根据 Source（包括 VIEW）的输出 Schema 自动创建；已存在时按 `APPEND` 或 `REPLACE` 处理。`REPLACE` 先写入 `<目标表>_tmp`，Target 写入成功后通过方言 rename 切换正式表；写入失败时删除临时表并保留原目标表。
+- `JdbcTableTarget` 始终表示普通目标表。目标表不存在时，会根据 Source（包括 VIEW）的输出 Schema 自动创建；已存在时按 `APPEND` 或 `REPLACE` 处理。`REPLACE` 先写入 `<目标表>_tmp`，关闭时才换表：原表先改名为 `<目标表>_old`，临时表接位成功后再删除备份，接位失败则把备份改回原名并保留临时表。`EtlTask` 只在任务读完整且未崩溃（`SUCCESS` / `PARTIAL`）时以 `close(true)` 提交；源读取失败、被中断或读到的行数少于 `count()` 时以 `close(false)` 关闭，只清理临时表、不发生换表。
 - 如果目标对象已经是 VIEW，`JdbcTableTarget` 会失败，不会向 VIEW 写入，也不会把 VIEW 当作普通表删除重建。
 - 如果要把 VIEW 结果物化为表，使用普通 `EtlTask`，由用户指定目标表名：
 
@@ -284,7 +287,7 @@ Source source = new CsvSource(
 
 ### Quickstart：数据库到文件
 
-CSV 目标支持追加和覆盖；XLSX 目标只支持覆盖。两者在 REPLACE 模式下先写入 `.part`，成功后替换目标文件，写入失败时保留 `.part` 供排查。
+CSV 目标支持追加和覆盖；XLSX 目标只支持覆盖。两者在 REPLACE 模式下先写入 `.part`，提交（`close(true)`）时才替换目标文件；以 `close(false)` 关闭（读取失败、被中断、行数少于声明值）时只保留 `.part` 供排查，正式文件保持原样。
 
 ```java
 Source source = new JdbcQuerySource(
@@ -471,7 +474,8 @@ public final class MySource implements Source {
 - `RecordBatch` 中的记录必须使用同一个 `RecordSchema`。
 - `Target.prepare` 必须先于 `write` 调用。
 - `write` 返回实际成功和失败的数量；不可恢复的错误通过异常报告。
-- `close` 应可重复调用，并释放连接、文件句柄等资源。
+- `Target.close` 是提交点：带两阶段语义的目标（临时表、`.part`）在 `close(boolean commit)` 时按 commit 决定「换表 / 覆盖正式文件」还是只做清理。`EtlTask` 以 `commit = 状态为 SUCCESS/PARTIAL` 单点决策并传给 `close`；不经 `EtlTask` 的直接调用方调 `close()`，等价于 `close(true)` 即提交，与最初行为一致。
+- 重写 `close(boolean)` 的实现不得反过来调用 `close()`（会无限递归），应由 `close()` 一行委托 `close(true)`；`close` 应可重复调用，并释放连接、文件句柄等资源；commit 为 false 时不得改动已有数据。
 - 不需要注册 SPI、`ServiceLoader` 或框架上下文。
 
 ## 数据类型归一化

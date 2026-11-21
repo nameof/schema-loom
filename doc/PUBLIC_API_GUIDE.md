@@ -161,7 +161,7 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 }
 ```
 
-`JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。`REPLACE` 模式先写入 `<目标表>_tmp`，写入成功后 rename 切换正式表，失败时清理临时表并保留原目标表。
+`JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。`REPLACE` 模式先写入 `<目标表>_tmp`，`close(true)` 时换表（原表改名为 `<目标表>_old`，临时表接位成功后再删备份，失败则回滚并保留临时表）。`EtlTask` 只在任务读完整且未崩溃（`SUCCESS` / `PARTIAL`）时以 `close(true)` 提交；读取失败、中断或读到的行数少于 `count()` 时以 `close(false)` 关闭，只清理临时表、不发生换表。直接调用 `close()` 等价于 `close(true)`，保持既有语义。
 
 JDBC Source、Target 和视图迁移在内部使用 Spring JDBC 执行适配层管理参数绑定、语句与结果集释放、异常转换；`JdbcTableTarget` 的每个写入批次使用独立短事务。该实现细节不出现在公共 API 中，LOB 的 `STREAM` 直传尚未开放。
 
