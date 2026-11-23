@@ -17,10 +17,10 @@
 | B 各数据库特有分支 | 3 | 1 | 9 | 2 | 15（新增 B14 下推黑白名单相反、B15 视图定义查询无条件大写） |
 | C 类型系统与编解码 | 2 | 0 | 8 | 1 | 11（新增 C10 布尔 DDL 与绑定类型码分裂、C11 coerce 静默收敛） |
 | D 性能与资源 | 7 | 0 | 2 | 0 | 9（新增 D9 重复取产品名 / 重复编译正则） |
-| E 设计与耦合 | 11 | 0 | 2 | 0 | 13（新增 E8~E14） |
+| E 设计与耦合 | 10 | 0 | 3 | 0 | 13（新增 E8~E14） |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 0 | 4 |
 | G 测试与工具 | 2 | 0 | 1 | 0 | 3（新增 G3 集成测试卫生） |
-| **合计** | **27** | **1** | **28** | **3** | **59** |
+| **合计** | **26** | **1** | **29** | **3** | **59** |
 
 > 2026-11-21 修正计数口径：原表「已解决 28」把 C5 算进去了，而归档表实际只有 27 行；
 > B 组小计把 B6 / B7 算进小计却没算进任何一列，导致「合计 46」与「15+1+28=44」对不上。
@@ -97,7 +97,6 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | E9 | `DatabaseMetadataService`（486 行，全部 7 类职责） | 七类职责混在一个类：SchemaCrawler 兼容（`System.setProperty` + 进程级锁）、下推策略、命名空间正则、类型归一、精度修正、生成列旁路 SQL、索引/外键/约束映射。附带 R7：`UNKNOWN_TYPE_NUMBER = Integer.MIN_VALUE`(33 / 304) 直接依赖 SchemaCrawler 对未收录类型的**内部约定值**，升级 SchemaCrawler 后「未识别类型」唯一的可观测点（warn）会静默失效 | 至少拆成 MetadataLoader（crawl + 兼容）/ MetadataFilter（下推与匹配）/ TableInfoMapper（归一与映射）/ GeneratedColumns 四块；UNKNOWN 判据改成自证条件（`JdbcTypes` 认不出且类型名不在白名单），不依赖魔法值 | 实证 |
 | E10 | `JdbcTableSource#align`(201-209)、`JdbcQuerySource#readSchema`(108-121)、`JdbcTableSource#ensureTableInfo`(126-131) | 双元数据源（驱动 `ResultSetMetaData` vs SchemaCrawler 表元数据）只在出口打补丁。`align` 按**位置**而非列名对齐委托记录：列少补 null、列多直接丢弃，同类型列错位时 `DataRecord` 校验完全无声 → 可能静默写错整列。`SELECT *` 目前能保证顺序一致，所以尚未构造出触发场景，但这是安全缺口，且与 `FieldMapping#mapRecord`（按名取值）风格相反。每行还背着 3 次 `DataRecord` 构造 / 3 次 List 拷贝 / 2 次 `coerce` 的固定开销 | 给 `JdbcQuerySource` 加「权威 Schema」入口（传入表元数据 Schema，按列名映射而非下标），`align` 退化为断言；做不到时至少在 `align` 校验列名序列一致，不一致显式失败 | 实证（代码行为已确认，触发场景未构造，见第六节） |
 | E11 | `DatabaseConnectionInfo#normalizeIdentifier/uppercasesIdentifiers`(64-81)、`SqlServerDialect#unquoteQualifiedName/segments/lastSegment`(54-91) | 标识符处理散落在 3~4 处且互不知情：①连接配置类承担了「DB2 / 达梦大写」的方言知识，引号字符硬编码 `"`；②只规范化 table 段，catalog / schema 段原样透传；③`SqlServerDialect` 自己一套「先剥引号再切分」，`"a.b"."t"` 被切成 `a.b.t` 三段再取 `b.t` —— 引号内点号的保护正好在切分前被销毁；④B13 已把 `lastIdentifier` 下沉到 `AbstractDialect`，SqlServer 仍在用自带的 `lastSegment`。D6「该用 Hutool」的指控需先确认 Hutool `split` 能否保留空段（能则一并替换） | 抽一个 Identifier 工具（quote / unquote / split 保空段 / lastSegment / 大小写策略），方言只声明 `quoteChar` 与大小写策略；`normalizeIdentifier` 下沉到方言层 | 实证（Hutool 替换可行性待确认） |
-| E12 | `MySqlDialect`(42-50 / 53-58)、`MariaDbDialect`(43-51 / 54-59)、`GBase8aDialect`(70-77 / 80-85) | `commentLiteral` 三份逐字相同，连 `viewDefinitionQuery` 也是三份逐字相同。三个方言同属 MySQL 家族，`quoteChar`、注释转义、视图查询、大部分映射表全重复 —— 改一处要改三处（B10 就是三处一起改的），漏改一处就是「只有某个库的注释转义不对」 | 抽 `MySqlFamilyDialect` 基类，三个方言只覆盖差异（DECIMAL 上限、GBase 的索引 / rename 差异、注释迁移能力） | 实证 |
 | E13 | `DatabaseMetadataService#join`(262-269)、`#loadCatalogWithCompatibility`(225)、`JdbcTableTarget` 构造器(53-82) | 小清理集合：①`join()` 全项目零调用（死代码）；②`contains("db2") ? "db2" : contains("kingbase") ? "postgresql" : "postgresql"` 后两个分支相同，恒等三元让人误以为有第三种取值；③`JdbcTableTarget(provider, info, table, type)` 里 `info` 已含 `type`，两处可能不一致；④`openValidated` 里 `info.table(table)` 只为校验、返回值被丢弃，紧接着构造器又调一次 | 删 `join`；三元压平成二分支；构造器去掉 `type` 参数（取 `info.getDatabaseType()`）；校验与构造复用同一次 `table()` 结果 | 实证 |
 | E14 | `MetadataQuery`（无 `equals/hashCode/toString`）、`DatabaseMetadataService#getTable(provider, MetadataQuery)`(93-97) | `getTable` 把 `query.getTablePattern()` 当**精确表名**用（`equalsIgnoreCase` 比较），而 `listTables` 把同一个参数当 **LIKE 模式**；传 `S%` 给 `getTable` 会得到「table not found」而不是「参数非法」。`MetadataQuery` 又缺 `equals/hashCode/toString`，作值对象在日志和测试断言里只能看到对象地址 | `getTable` 显式拒绝含 `%` / `_` 的模式，或改收 `QualifiedTableName`；补 `equals/hashCode/toString` | 实证 |
 
@@ -157,6 +156,7 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | A4 | `XlsxTarget` 的 `failed` 只在 `write()` 置位，读阶段失败仍会把 `.part` 覆盖正式文件 | `XlsxTarget` / `CsvTarget` 在 `close(commit)` 时移动 `.part`，commit 为 false（读失败、中断、读少）时只关闭流并保留 `.part`，正式文件保持原样。`CsvTarget` 同构补齐（原实现只在写失败时保留 `.part`） | 2026-11-11（单测：`keepsExistingWorkbookWhenReplaceIsNotCommitted`、`keepsExistingFileWhenReplaceIsNotCommitted`） |
 | B13 | `OracleDialect` 没有覆盖 `renameTableSql`，落到 `AbstractDialect` 的默认实现（新名原样拼接全限定名）。而 `JdbcTableTarget` 传的正是 `quote()` 后的 `"SCHEMA"."TABLE"` → Oracle 的 `RENAME TO` 只接受裸表名，REPLACE 换表必报 **ORA-14047**（"ALTER TABLE\|INDEX RENAME 不能与其他分区组合"，措辞误导，实为语法拒绝），临时表接位与备份/回滚三步全部失效 | 默认实现改为「新名只取最后一段」（`lastIdentifier`），Oracle 因此自动继承正确行为；同时把分散在 `PostgreSqlDialect` / `KingbaseDialect` / `Db2Dialect` 的三份 `lastIdentifier` 副本和 `DmDialect#extractTableName`（不识别引号内的点号）全部下沉到 `AbstractDialect`，Pg / Kingbase / 达梦删除各自的重复 override。`DialectTest` 的 rename 断言改用**限定名入参**（原用例只传裸名，正好绕开 `JdbcTableTarget` 的真实调用形态，所以一直没被抓到） | 2026-11-11（Oracle 26ai Free 23.26 实机复现 + 端到端验证，见第五节） |
 | D4 | `JdbcViewMigrator#migrate` 的 finally 里 `target.close()` 在前，抛异常时 sourceProvider 永远不关（连接泄漏） | 抽出 `closeQuietly(AutoCloseable)`：每个资源独立 try/catch，关闭失败只记告警，不遮蔽其余资源与 try 块原始异常；新增 `JdbcViewMigratorTest` 断言「前一个 close 抛异常时后续资源仍被关闭」 | 2026-11-23 |
+| E12 | `MySqlDialect` / `MariaDbDialect` / `GBase8aDialect` 的 `commentLiteral`、`viewDefinitionQuery` 等逐字重复（B10 需三处同改） | 抽 `MySqlFamilyDialect` 收口家族共性（引用符 / 默认值 / 自增 / 改表名 / 表注释 / 视图查询 / 类型映射表），差异改用 `decimalPrecisionCap()` / `booleanMapping()` / `stringDdlType()` 钩子；MySQL、MariaDB 退化为空子类，GBase 8a 只留 identity 开关与生成列报错 | 2026-11-23 |
 
 **A 组改动的接口影响（2026-11-21 重构为最终形态）**：`Target` 新增 `default void close(boolean commit)`（默认转发给 `close()`，现有外部实现零改动；`close()` 保持抽象）。提交决策在 `EtlTask` 单点完成：`commit = (状态为 SUCCESS/PARTIAL)`，即「读完整且未崩溃」才以 `close(true)` 提交，`FAILED`/`CANCELLED` 以 `close(false)` 只清理。带两阶段语义的目标（JDBC REPLACE 临时表、CSV/XLSX `.part`）据此决定换表/覆盖或保留原数据；实现内部保留 `writeFailed` 安全闩（自身发生过异常时禁止提交，防止吞异常的调用方误提交部分数据）。不经 `EtlTask` 直接 `prepare → write → close` 的调用方行为与最初一致（`close()` 等价 `close(true)` 即提交）。
 
