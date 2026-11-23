@@ -16,11 +16,11 @@
 | A 数据丢失 / 状态误报 | 0 | 0 | 4 | 0 | 4 |
 | B 各数据库特有分支 | 3 | 1 | 9 | 2 | 15（新增 B14 下推黑白名单相反、B15 视图定义查询无条件大写） |
 | C 类型系统与编解码 | 2 | 0 | 8 | 1 | 11（新增 C10 布尔 DDL 与绑定类型码分裂、C11 coerce 静默收敛） |
-| D 性能与资源 | 8 | 0 | 1 | 0 | 9（新增 D9 重复取产品名 / 重复编译正则） |
+| D 性能与资源 | 7 | 0 | 2 | 0 | 9（新增 D9 重复取产品名 / 重复编译正则） |
 | E 设计与耦合 | 11 | 0 | 2 | 0 | 13（新增 E8~E14） |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 0 | 4 |
 | G 测试与工具 | 2 | 0 | 1 | 0 | 3（新增 G3 集成测试卫生） |
-| **合计** | **28** | **1** | **27** | **3** | **59** |
+| **合计** | **27** | **1** | **28** | **3** | **59** |
 
 > 2026-11-21 修正计数口径：原表「已解决 28」把 C5 算进去了，而归档表实际只有 27 行；
 > B 组小计把 B6 / B7 算进小计却没算进任何一列，导致「合计 46」与「15+1+28=44」对不上。
@@ -80,7 +80,6 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | D1 | `JdbcQuerySource#recordSchema` | 为拿 `ResultSetMetaData`，把**整条 SQL 真跑一遍且不设 maxRows**。`SELECT * FROM 大表` 会全量执行两次（这里一次 + read 一次） | 改用 `PreparedStatement#getMetaData()`（不执行）；或包一层 `SELECT * FROM (...) WHERE 1=0` | 推断 |
 | D2 | `JdbcExecutionAdapter#statement` | 只调 `setFetchSize(1000)`。MySQL Connector/J 不开 `useCursorFetch` 或不传 `Integer.MIN_VALUE` 时**该参数无效** → 整个结果集进内存，大表 OOM | MySQL 用 `setFetchSize(Integer.MIN_VALUE)`，或要求 URL 带 `useCursorFetch=true` | 推断 |
 | D3 | `XlsxSource` | `recordSchema()` 开一次工作簿，`read()` 又开一次 → 大文件双倍内存 + 双倍解析 | 复用工作簿，或改流式读取（XSSF eventmodel） | 推断 |
-| D4 | `JdbcViewMigrator#migrate` finally | `target.close()` 在前，若抛异常 → **sourceProvider 永远不关**，连接泄漏 | finally 里各自 try/catch，保证互不遮蔽 | 推断 |
 | D5 | `JdbcDriverLoader#TcclInvocationHandler` | 每次 JDBC 调用都要切 TCCL + 反射 invoke，且 ResultSet 被递归代理 → 百万行场景开销明显 | 缩小代理范围到连接级别，或按驱动白名单决定是否代理 | 推断 |
 | D6 | `JdbcDatabaseStatisticsReader` 构造器 | 又 `new` 一个 `SingleConnectionDataSource` 包同一个连接，与 `JdbcExecutionAdapter` 里的并存 → 两处各自改 autoCommit 会互相踩 | 复用同一个 DataSource，避免重复包装 | 推断 |
 | D8 | `DatabaseMetadataService#listTables` | 列表路径为了返回 `TableInfo`，把每张表的列、索引、外键、约束全部抓一遍（默认 InfoLevel）。而数据资产探索的表树只要表名/注释/类型 —— DB2 上 343 张表跑 24 秒，其中绝大部分时间花在下游根本用不到的索引与外键检索上 | 列表路径用轻量 InfoLevel（只带表与列，不含索引/外键/约束），详情改由 `getTableDetail`/`listIndexes` 按表按需取 | **实证**：DB2 BLUDB，`IndexRetriever` 按表逐个刷屏，耗时与实例表总数成正比 |
@@ -157,6 +156,7 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | A3 | `target.close()` 抛异常只 `addError`，返回 `SUCCESS` 但表没换 | `close()` 抛异常时把 `SUCCESS`/`PARTIAL` 降为 `FAILED`（close 即提交模型下，换表失败即由 close 抛出） | 2026-11-11（单测：`closeFailureTurnsSuccessIntoFailed`） |
 | A4 | `XlsxTarget` 的 `failed` 只在 `write()` 置位，读阶段失败仍会把 `.part` 覆盖正式文件 | `XlsxTarget` / `CsvTarget` 在 `close(commit)` 时移动 `.part`，commit 为 false（读失败、中断、读少）时只关闭流并保留 `.part`，正式文件保持原样。`CsvTarget` 同构补齐（原实现只在写失败时保留 `.part`） | 2026-11-11（单测：`keepsExistingWorkbookWhenReplaceIsNotCommitted`、`keepsExistingFileWhenReplaceIsNotCommitted`） |
 | B13 | `OracleDialect` 没有覆盖 `renameTableSql`，落到 `AbstractDialect` 的默认实现（新名原样拼接全限定名）。而 `JdbcTableTarget` 传的正是 `quote()` 后的 `"SCHEMA"."TABLE"` → Oracle 的 `RENAME TO` 只接受裸表名，REPLACE 换表必报 **ORA-14047**（"ALTER TABLE\|INDEX RENAME 不能与其他分区组合"，措辞误导，实为语法拒绝），临时表接位与备份/回滚三步全部失效 | 默认实现改为「新名只取最后一段」（`lastIdentifier`），Oracle 因此自动继承正确行为；同时把分散在 `PostgreSqlDialect` / `KingbaseDialect` / `Db2Dialect` 的三份 `lastIdentifier` 副本和 `DmDialect#extractTableName`（不识别引号内的点号）全部下沉到 `AbstractDialect`，Pg / Kingbase / 达梦删除各自的重复 override。`DialectTest` 的 rename 断言改用**限定名入参**（原用例只传裸名，正好绕开 `JdbcTableTarget` 的真实调用形态，所以一直没被抓到） | 2026-11-11（Oracle 26ai Free 23.26 实机复现 + 端到端验证，见第五节） |
+| D4 | `JdbcViewMigrator#migrate` 的 finally 里 `target.close()` 在前，抛异常时 sourceProvider 永远不关（连接泄漏） | 抽出 `closeQuietly(AutoCloseable)`：每个资源独立 try/catch，关闭失败只记告警，不遮蔽其余资源与 try 块原始异常；新增 `JdbcViewMigratorTest` 断言「前一个 close 抛异常时后续资源仍被关闭」 | 2026-11-23 |
 
 **A 组改动的接口影响（2026-11-21 重构为最终形态）**：`Target` 新增 `default void close(boolean commit)`（默认转发给 `close()`，现有外部实现零改动；`close()` 保持抽象）。提交决策在 `EtlTask` 单点完成：`commit = (状态为 SUCCESS/PARTIAL)`，即「读完整且未崩溃」才以 `close(true)` 提交，`FAILED`/`CANCELLED` 以 `close(false)` 只清理。带两阶段语义的目标（JDBC REPLACE 临时表、CSV/XLSX `.part`）据此决定换表/覆盖或保留原数据；实现内部保留 `writeFailed` 安全闩（自身发生过异常时禁止提交，防止吞异常的调用方误提交部分数据）。不经 `EtlTask` 直接 `prepare → write → close` 的调用方行为与最初一致（`close()` 等价 `close(true)` 即提交）。
 

@@ -76,9 +76,19 @@ final class JdbcViewMigrator {
                     dialect.createViewSql(dialect.quote(targetName), definition));
             log.debug("目标视图已创建 runId={} targetView={}", LoggingSupport.currentRunId(), targetView);
         } finally {
-            if (targetProvider != null) targetProvider.close();
-            if (sourceProvider != null) sourceProvider.close();
-            if (createLoader) activeLoader.close();
+            closeQuietly(targetProvider);
+            closeQuietly(sourceProvider);
+            if (createLoader) closeQuietly(activeLoader);
+        }
+    }
+
+    /** 关闭单个资源并忽略关闭异常，仅记录告警，避免一个资源关闭失败导致后续资源泄漏。 */
+    static void closeQuietly(AutoCloseable resource) {
+        if (resource == null) return;
+        try {
+            resource.close();
+        } catch (Exception e) {
+            log.warn("关闭 JDBC 资源失败，已继续释放其余资源 runId={}", LoggingSupport.currentRunId(), e);
         }
     }
 
