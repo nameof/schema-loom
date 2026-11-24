@@ -5,7 +5,8 @@
 **更新规则**：每解决一条，把该条从「待办」移到文末「已解决归档」并标注解决日期；部分解决的留在
 「部分解决」区并写明残余问题。待办区里剩下的，一律是还没动的。
 
-**最后更新**：2026-11-21（A 组提交模型重构为 `close(boolean commit)` 单一决策点，归档与接口影响以最终形态改写；此前同日合并 `8ad61b9f..HEAD` 多库方言补丁集审查结论，逐条核验记录见第八节）
+**最后更新**：2026-11-24（D1 部分解决：探测 Schema 改用 `setMaxRows(1)`，7 库实机对比后否决台账原列的两条建议修法，残余与依据见第三、五节；同日 D6 经反编译核验为非缺陷，移入已验证非缺陷区；D9 撤销单独立项，产品名重复嗅探并入 E8、正则卫生项并入 E13，待办移除；**G 组整体移除**——G1 已解决归档删除、G2 / G3 未立项即移除；**D2 移除**——项目定位为只保证 API 调用边界，不深入定制各 JDBC 驱动私有逻辑，设计边界记录见第七节附带说明）；
+此前 2026-11-21（A 组提交模型重构为 `close(boolean commit)` 单一决策点，归档与接口影响以最终形态改写；此前同日合并 `8ad61b9f..HEAD` 多库方言补丁集审查结论，逐条核验记录见第八节）
 
 ---
 
@@ -16,11 +17,10 @@
 | A 数据丢失 / 状态误报 | 0 | 0 | 4 | 0 | 4 |
 | B 各数据库特有分支 | 3 | 1 | 9 | 2 | 15（新增 B14 下推黑白名单相反、B15 视图定义查询无条件大写） |
 | C 类型系统与编解码 | 2 | 0 | 8 | 1 | 11（新增 C10 布尔 DDL 与绑定类型码分裂、C11 coerce 静默收敛） |
-| D 性能与资源 | 7 | 0 | 2 | 0 | 9（新增 D9 重复取产品名 / 重复编译正则） |
+| D 性能与资源 | 3 | 1 | 2 | 1 | 7（D1 部分解决；D6 核验为非缺陷归档；D9 并入 E8 / E13、D2 因项目边界决策移除，待办仅剩 D3 / D5 / D8） |
 | E 设计与耦合 | 10 | 0 | 3 | 0 | 13（新增 E8~E14） |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 0 | 4 |
-| G 测试与工具 | 2 | 0 | 1 | 0 | 3（新增 G3 集成测试卫生） |
-| **合计** | **26** | **1** | **29** | **3** | **59** |
+| **合计** | **20** | **2** | **28** | **4** | **54** |
 
 > 2026-11-21 修正计数口径：原表「已解决 28」把 C5 算进去了，而归档表实际只有 27 行；
 > B 组小计把 B6 / B7 算进小计却没算进任何一列，导致「合计 46」与「15+1+28=44」对不上。
@@ -28,13 +28,12 @@
 
 **建议处理顺序**
 
-1. **正确性优先**：B12（SQL Server 按表名查询落空）、**B15**（小写视图迁移必失败）、
-   **G3**（8 个库的真实口令写进了源码，会随提交进版本库）
+1. **正确性优先**：B12（SQL Server 按表名查询落空）、**B15**（小写视图迁移必失败）
 2. **先验证再动手**：B14（KingbaseES 表名下推未实测）、C10（老版 ojdbc 布尔 null 绑定未验证）、
    E10（位置对齐未构造出触发场景）—— 见第六节
-3. **结构性重构**：E8 → E9 → E10 → E11 / E12（E8 是 B14 / B15 / D9 的共同根因，
+3. **结构性重构**：E8 → E9 → E10 → E11 / E12（E8 是 B14 / B15 的共同根因，D9 的产品名重复嗅探也已并入本条，
    不收敛就会继续按补丁堆叠）
-4. **D / F / 小清理**（E13 / E14 / D9）可批量做
+4. **D / F / 小清理**（E13 / E14）可批量做
 
 > A 组已于 2026-11-11 解决，2026-11-21 重构为「`close(boolean commit)` 单一决策点」模型
 > （abort 负向标记从未提交发布，直接以最终形态归档），详见第四节归档。
@@ -77,27 +76,23 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
-| D1 | `JdbcQuerySource#recordSchema` | 为拿 `ResultSetMetaData`，把**整条 SQL 真跑一遍且不设 maxRows**。`SELECT * FROM 大表` 会全量执行两次（这里一次 + read 一次） | 改用 `PreparedStatement#getMetaData()`（不执行）；或包一层 `SELECT * FROM (...) WHERE 1=0` | 推断 |
-| D2 | `JdbcExecutionAdapter#statement` | 只调 `setFetchSize(1000)`。MySQL Connector/J 不开 `useCursorFetch` 或不传 `Integer.MIN_VALUE` 时**该参数无效** → 整个结果集进内存，大表 OOM | MySQL 用 `setFetchSize(Integer.MIN_VALUE)`，或要求 URL 带 `useCursorFetch=true` | 推断 |
 | D3 | `XlsxSource` | `recordSchema()` 开一次工作簿，`read()` 又开一次 → 大文件双倍内存 + 双倍解析 | 复用工作簿，或改流式读取（XSSF eventmodel） | 推断 |
 | D5 | `JdbcDriverLoader#TcclInvocationHandler` | 每次 JDBC 调用都要切 TCCL + 反射 invoke，且 ResultSet 被递归代理 → 百万行场景开销明显 | 缩小代理范围到连接级别，或按驱动白名单决定是否代理 | 推断 |
-| D6 | `JdbcDatabaseStatisticsReader` 构造器 | 又 `new` 一个 `SingleConnectionDataSource` 包同一个连接，与 `JdbcExecutionAdapter` 里的并存 → 两处各自改 autoCommit 会互相踩 | 复用同一个 DataSource，避免重复包装 | 推断 |
 | D8 | `DatabaseMetadataService#listTables` | 列表路径为了返回 `TableInfo`，把每张表的列、索引、外键、约束全部抓一遍（默认 InfoLevel）。而数据资产探索的表树只要表名/注释/类型 —— DB2 上 343 张表跑 24 秒，其中绝大部分时间花在下游根本用不到的索引与外键检索上 | 列表路径用轻量 InfoLevel（只带表与列，不含索引/外键/约束），详情改由 `getTableDetail`/`listIndexes` 按表按需取 | **实证**：DB2 BLUDB，`IndexRetriever` 按表逐个刷屏，耗时与实例表总数成正比 |
-| D9 | `DatabaseMetadataService#productName` 调用点 180 / 212 / 220 / 338；`LogicalTypeCatalog#excelTime`(221) / `#excelDate`(232) | 一次 `listTables` 取 **3 次**产品名（每次都是一轮 `getMetaData().getDatabaseProductName()`），`enrichGeneratedColumns` 再**每张表**取 1 次 → 343 张表的库平白多出 343 次连接元数据往返。同类小问题：`excelTime` / `excelDate` 用 `String.matches(...)`，每次调用都重新编译同一个正则 | 单次 `listTables` 内取一次产品名向下传参（与 E8 的能力表合并后可直接查表）；正则提为 `static final Pattern` | 推断（调用次数已核实，收益未量化） |
 
 ### E 组：设计与耦合
 
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
-| E1 | 全局 | `loader → provider → connection → source/target → task` 五层套娃（README 自己的「优化 TODO」第一条）。同一连接被 `SingleConnectionDataSource` 包了 2-3 次 | 合并 provider/connection 层，DataSource 只包装一次 | 推断 |
+| E1 | 全局 | `loader → provider → connection → source/target → task` 五层套娃（README 自己的「优化 TODO」第一条）。同一连接被 `SingleConnectionDataSource` 包了 2-3 次（含 D6 核验后并入的统计 reader 重复包装：`getTableStatistics`/`getSchemaStatistics` 每次调用都新建包装并重复读产品名） | 合并 provider/connection 层，DataSource 只包装一次 | 推断 |
 | E5 | `EtlTask` + REPLACE 模式 | `ISOLATE_AND_CONTINUE` 降级逐行后，只要有 1 行坏数据 → `write()` 抛错 → `targetWriteFailed=true` → close 删临时表 → **整表迁移作废**。两个特性语义上互斥，当前没有提示 | REPLACE 模式下禁用 `ISOLATE_AND_CONTINUE`，或文档明示互斥 | 推断 |
 | E6 | `DatabaseMetadataService#listTables`(72) vs `#sqlPattern`(251-260) | 表名转正则用 `replace("%",".*").replace("_",".")`，**没有 `Pattern.quote`**；同文件 `sqlPattern()` 却做了 quote → 两套标准。2026-11-21 补充两条后果：①`_` 被当成「任意一个字符」而不是字面下划线 —— 项目自己的测试表就叫 `user_info`，下推路径（`sqlPattern`）与本地过滤路径（第 72 行）因此不是同一批表，`user_info` 会额外命中 `userXinfo` 之类；②表名含 `.` `(` `[` 时误匹配或 `PatternSyntaxException` | 用 `Pattern.quote` 转义字面部分；最好让下推与本地过滤**共用同一个** `sqlPattern()` 实现，避免再次分裂 | 推断 |
 | E7 | `JdbcTableTarget` 的 `_tmp` / `_old` 影子表命名 | 直接拼后缀，不校验目标方言的标识符长度：Oracle 30 字符上限下，`<表名>` 只要超过 25 个字符，REPLACE 就会因临时表名超长直接失败（A1 改动后 `_old` 同样） | 命名加长度约束：超长时截断并追加短哈希，或统一走一个 `shadowName(table, suffix)` 工厂，由方言给出长度上限 | 推断 |
-| E8 | `DatabaseType`（无字段）、`AbstractDialect#supportsEmptySchemaSegment`(45, `protected`)、`DatabaseMetadataService`(179-184 / 211-215 / 220-225 / 340-345 / 379-382)、`MetadataQuery`(25-42) | 方言能力知识**三处分裂**：①枚举只有名字，没有「是否三级命名 / 是否接受空模式段 / 名字别名」等字段；②`supportsEmptySchemaSegment` 是 `protected`，metadata 包调不到，只能在本地用产品名字符串重新判断；③同一「达梦」在不同处写成 `"dm dbms"` 与 `"dm"` 两种形态，各自靠 `contains` 撞运气。后果：每新增一个库种，能力判断要在 4~6 处同步改，漏一处就是「某库偶发查不到表」。根因是 `DatabaseMetadataService` 只收 `ConnectionProvider`，拿不到 `DatabaseType` | 给 `DatabaseType` 加能力字段（或由 `DialectRegistry` 暴露 `DialectCapabilities`），`DatabaseMetadataService` 改为接收方言 / 类型，不再自己嗅探产品名。B14 / B15 / D9 都是它的下游 | 实证 |
+| E8 | `DatabaseType`（无字段）、`AbstractDialect#supportsEmptySchemaSegment`(45, `protected`)、`DatabaseMetadataService`(179-184 / 211-215 / 220-225 / 340-345 / 379-382)、`MetadataQuery`(25-42) | 方言能力知识**三处分裂**：①枚举只有名字，没有「是否三级命名 / 是否接受空模式段 / 名字别名」等字段；②`supportsEmptySchemaSegment` 是 `protected`，metadata 包调不到，只能在本地用产品名字符串重新判断；③同一「达梦」在不同处写成 `"dm dbms"` 与 `"dm"` 两种形态，各自靠 `contains` 撞运气。后果：每新增一个库种，能力判断要在 4~6 处同步改，漏一处就是「某库偶发查不到表」。根因是 `DatabaseMetadataService` 只收 `ConnectionProvider`，拿不到 `DatabaseType` | 给 `DatabaseType` 加能力字段（或由 `DialectRegistry` 暴露 `DialectCapabilities`），`DatabaseMetadataService` 改为接收方言 / 类型，不再自己嗅探产品名。B14 / B15 是它的下游；2026-11-24 起原 D9 的产品名重复嗅探（一次 `listTables` 取 3 次 + `enrichGeneratedColumns` 每表 1 次）也并入本条，随本条修复自然消解 | 实证 |
 | E9 | `DatabaseMetadataService`（486 行，全部 7 类职责） | 七类职责混在一个类：SchemaCrawler 兼容（`System.setProperty` + 进程级锁）、下推策略、命名空间正则、类型归一、精度修正、生成列旁路 SQL、索引/外键/约束映射。附带 R7：`UNKNOWN_TYPE_NUMBER = Integer.MIN_VALUE`(33 / 304) 直接依赖 SchemaCrawler 对未收录类型的**内部约定值**，升级 SchemaCrawler 后「未识别类型」唯一的可观测点（warn）会静默失效 | 至少拆成 MetadataLoader（crawl + 兼容）/ MetadataFilter（下推与匹配）/ TableInfoMapper（归一与映射）/ GeneratedColumns 四块；UNKNOWN 判据改成自证条件（`JdbcTypes` 认不出且类型名不在白名单），不依赖魔法值 | 实证 |
 | E10 | `JdbcTableSource#align`(201-209)、`JdbcQuerySource#readSchema`(108-121)、`JdbcTableSource#ensureTableInfo`(126-131) | 双元数据源（驱动 `ResultSetMetaData` vs SchemaCrawler 表元数据）只在出口打补丁。`align` 按**位置**而非列名对齐委托记录：列少补 null、列多直接丢弃，同类型列错位时 `DataRecord` 校验完全无声 → 可能静默写错整列。`SELECT *` 目前能保证顺序一致，所以尚未构造出触发场景，但这是安全缺口，且与 `FieldMapping#mapRecord`（按名取值）风格相反。每行还背着 3 次 `DataRecord` 构造 / 3 次 List 拷贝 / 2 次 `coerce` 的固定开销 | 给 `JdbcQuerySource` 加「权威 Schema」入口（传入表元数据 Schema，按列名映射而非下标），`align` 退化为断言；做不到时至少在 `align` 校验列名序列一致，不一致显式失败 | 实证（代码行为已确认，触发场景未构造，见第六节） |
 | E11 | `DatabaseConnectionInfo#normalizeIdentifier/uppercasesIdentifiers`(64-81)、`SqlServerDialect#unquoteQualifiedName/segments/lastSegment`(54-91) | 标识符处理散落在 3~4 处且互不知情：①连接配置类承担了「DB2 / 达梦大写」的方言知识，引号字符硬编码 `"`；②只规范化 table 段，catalog / schema 段原样透传；③`SqlServerDialect` 自己一套「先剥引号再切分」，`"a.b"."t"` 被切成 `a.b.t` 三段再取 `b.t` —— 引号内点号的保护正好在切分前被销毁；④B13 已把 `lastIdentifier` 下沉到 `AbstractDialect`，SqlServer 仍在用自带的 `lastSegment`。D6「该用 Hutool」的指控需先确认 Hutool `split` 能否保留空段（能则一并替换） | 抽一个 Identifier 工具（quote / unquote / split 保空段 / lastSegment / 大小写策略），方言只声明 `quoteChar` 与大小写策略；`normalizeIdentifier` 下沉到方言层 | 实证（Hutool 替换可行性待确认） |
-| E13 | `DatabaseMetadataService#join`(262-269)、`#loadCatalogWithCompatibility`(225)、`JdbcTableTarget` 构造器(53-82) | 小清理集合：①`join()` 全项目零调用（死代码）；②`contains("db2") ? "db2" : contains("kingbase") ? "postgresql" : "postgresql"` 后两个分支相同，恒等三元让人误以为有第三种取值；③`JdbcTableTarget(provider, info, table, type)` 里 `info` 已含 `type`，两处可能不一致；④`openValidated` 里 `info.table(table)` 只为校验、返回值被丢弃，紧接着构造器又调一次 | 删 `join`；三元压平成二分支；构造器去掉 `type` 参数（取 `info.getDatabaseType()`）；校验与构造复用同一次 `table()` 结果 | 实证 |
+| E13 | `DatabaseMetadataService#join`(262-269)、`#loadCatalogWithCompatibility`(225)、`JdbcTableTarget` 构造器(53-82) | 小清理集合：①`join()` 全项目零调用（死代码）；②`contains("db2") ? "db2" : contains("kingbase") ? "postgresql" : "postgresql"` 后两个分支相同，恒等三元让人误以为有第三种取值；③`JdbcTableTarget(provider, info, table, type)` 里 `info` 已含 `type`，两处可能不一致；④`openValidated` 里 `info.table(table)` 只为校验、返回值被丢弃，紧接着构造器又调一次；⑤（2026-11-24 原并入 D9）`LogicalTypeCatalog#excelTime` / `#excelDate` 用 `String.matches(...)`，每次调用重新编译同一个正则 | 删 `join`；三元压平成二分支；构造器去掉 `type` 参数（取 `info.getDatabaseType()`）；校验与构造复用同一次 `table()` 结果；正则提为 `static final Pattern` | 实证 |
 | E14 | `MetadataQuery`（无 `equals/hashCode/toString`）、`DatabaseMetadataService#getTable(provider, MetadataQuery)`(93-97) | `getTable` 把 `query.getTablePattern()` 当**精确表名**用（`equalsIgnoreCase` 比较），而 `listTables` 把同一个参数当 **LIKE 模式**；传 `S%` 给 `getTable` 会得到「table not found」而不是「参数非法」。`MetadataQuery` 又缺 `equals/hashCode/toString`，作值对象在日志和测试断言里只能看到对象地址 | `getTable` 显式拒绝含 `%` / `_` 的模式，或改收 `QualifiedTableName`；补 `equals/hashCode/toString` | 实证 |
 
 ### F 组：元数据与文档不一致
@@ -107,13 +102,6 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | F1 | `DatabaseMetadataService#catalog` | `query.getCatalog()==null` 时 **schemaPattern 直接为 null，不下推**。Oracle/DB2 场景 catalog 通常为空 → 全库扫元数据（慢且大库易超时），靠下游 `matches()` 硬过滤 | catalog 为空时按方言把 database 作为 catalogPattern 下推 | 推断 |
 | F3 | README catalog/schema 表 | 说「DB2 / DM 未指定 Schema 时回退到数据库名」，但 `DatabaseConnectionInfo` 只对 `POSTGRESQL`/`KINGBASE` 默认 `public`，DB2/DM 没实现 | 要么实现回退，要么改文档 | 实证 |
 
-### G 组：测试与工具（新增）
-
-| 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
-|---|---|---|---|---|
-| G2 | 各 `Dialect#mappings` 的 DECIMAL 项 | 只分别 clamp 了 precision 和 scale，**没有约束 `scale <= precision`** → 仍可生成 `DECIMAL(5,30)` 这类非法 DDL | `scale = min(scale, precision)` | 推断 |
-| G3 | `TypeBindingProbeIntegrationTest`(34-57、159/189/195/201/241…)、`Db2SchemaPushdownProbeIntegrationTest`(52、77-78)、`DialectBehaviorProbeIntegrationTest`(552-555) | 新一批实机探针的四处卫生问题：①`TypeBindingProbe` 把 **8 个库的真实口令写进源码**（`SchemaLoom_IT_2026!` / `Sysdba001` / `Oracle_IT_2026` / `GBase_IT_2026` / `Sl_IT_2026`），违反 `PUBLIC_API_GUIDE`「不要在源码、提交记录或文档中写入真实密码」，且随提交进版本库；②没有 `Assume`，只起一半容器时 `-Pintegration` 必红、且无法按库跳过（对照 `OracleVendorTypeProbeIntegrationTest` 的环境变量 + `Assume` 才是正确范式）；③多处 `catch (Throwable) { println }` → 断言失败或连不上库都表现为**通过**，绿色不代表跑通，台账里 C3 / C5 / C6 的「实证」结论目前只能靠人读 stdout 复现、无法回归；④`Db2SchemaPushdownProbe:52` 用 `elapsed < 10_000` 做 SLA 断言，机器负载一抖就假红灯（修复前 23.6 秒、修复后 0.9 秒，比值余量极大） | 口令改环境变量 + `Assume`；`catch (Throwable)` 改为记录失败并在末尾汇总断言；时间断言改成「相对全量扫描路径显著更快」或标 `@Ignore` 只作探针 | 实证 |
-
 ---
 
 ## 三、部分解决
@@ -121,6 +109,7 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | 编号 | 位置 | 已修部分 | 残余问题 | 依据 |
 |---|---|---|---|---|
 | B3 | `SqlServerDialect#commentSql` | 已修：①`@level0name` 不再硬编码 `dbo`，从目标限定名解析架构；②REPLACE 模式下注释落到 `<表>_tmp` 而不是源表名（原本会加错对象或丢失） | 回退链第 2 步用的是**源表** schema。源/目标 schema 不同时仍会加错。彻底解法是给 `commentSql` 传目标连接信息 —— 那是 `DatabaseDialect` 接口级改动，波及 9 个方言，未做 | 推断 |
+| D1 | `JdbcQuerySource#recordSchema` | 探测查询改传 `maxRows=1`，不再把整条 SQL 的结果集全量回传；7 库实机验证元数据与现状逐字段一致，正式 `read()` / `preview()` 的行数语义未变。新增单测 `JdbcQuerySourceInspectTest` 锁定三条路径；全量 `mvn test` 156 项通过 | ①`setMaxRows` 只截客户端回传行数，**服务端仍执行完整查询计划**（大表扫描 / ORDER BY / 聚合照跑），是缓解非根治；②`JdbcTableSource` 已有权威 `TableInfo`，却仍委托 `JdbcQuerySource` 跑一次 inspect，表源路径根治需 E10 的「权威 Schema 注入」；③彻底不执行需 `PreparedStatement#getMetaData()` 分层方案，但本次按评审决策采用最小改动 | **实证**：7 库 56 组元数据对比 + 16384 行大表收益探针，见第五节 |
 
 ---
 
@@ -142,7 +131,6 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | F4 | README 逻辑类型清单只列到 `BINARY`，漏了 `OFFSET_TIME` / `OFFSET_TIMESTAMP`；且 MySQL 列注释明确不迁移，文档没写清 | 清单补齐两种带时区类型并说明降级时会告警（B8）；方言章节新增一段说明各库注释迁移能力差异 —— MySQL / MariaDB / GBase 8a 只迁表注释，列注释仅采集不写回 | 2026-11-03 |
 | C4 | `LogicalTypeCatalog#time` 的 Excel decode 只做 `LocalTime.parse(String.valueOf(raw))`，日期列有 `excelDate()` 兜底而时间列没有 → Excel 时间单元格（序列号 0.5）解析必失败 | 新增 `excelTime(raw)`：Date 走 `excelDate`，序列号与数字字符串走 `DateUtil.getLocalDateTime(double)`，纯时间文本仍直接 `LocalTime.parse`。**不能复用 `excelDate`** —— 它经 `getJavaDate` 生成 Date 再按默认时区还原，在 1899 这个基准年份会命中中国时区 1901 年前的 LMT 偏移（+08:05:43），把 12:00 变成 12:05:43（单测实测）。新增用例 `decodesExcelTimeFromSerialNumber` | 2026-11-04 |
 | E3 | `MetadataQuery#fromConnectionInfo` 与主流程「按名称精确查询」两套命名空间语义并存，它实际只有测试在用；主流程 MySQL 系未把 database 下推为 catalog，元数据退化为全库扫 | 主流程统一走 `fromConnectionInfo`：新增 `fromConnectionInfo(info, QualifiedTableName)`（表名自带 catalog/schema 优先、其余回退方言默认值，info 为 null 时不推导），`JdbcTableSource` / `JdbcTableTarget`（3 处）/ `JdbcViewMigrator`（2 处）全部改用它；`DatabaseMetadataService` 增补 `getTable(provider, MetadataQuery)`。**同时收紧兜底**：删掉「catalog 与 schema 都为空时把 database 当 catalog」这条分支 —— Oracle 的 database 是服务名、达梦是实例名，下推后命名空间过滤会剔除全部 schema，表直接查不到。**2026-11-06 补修**：PostgreSQL 分支当时仍把 database 当 catalog 下推，而命名空间过滤是拿 schema 名去匹配 SchemaCrawler 的「库名.public」全名，模式 `(?:^|.*/)public(?:/.*)?$` 匹配不上 → 精确表名查询命中 0 条（真实 PG 16 容器实测），目标表被误判为不存在。改为只透传显式配置的 catalog，未配置时保持 null | 2026-11-04，2026-11-06 补修 |
-| G1 | `EtlTaskTest#localTest` 连真实 MySQL，类名逃过了 surefire 的 `*IntegrationTest` 排除规则，本机没库时 `mvn test` 永远挂一个假红灯 | 给方法加 `@Ignore`（采用台账给出的第二种修法）。注意：**未改名为 `*IntegrationTest`**，用例仍留在 `EtlTaskTest` 里，只是不再执行 | 2026-11-04 |
 | C3 | `Types.FLOAT → FLOAT32` 把双精度列降级成单精度。**原判断的受害库搞错了** —— SQL Server 的 `float` 实际上报 `Types.DOUBLE(8)`、`float(24)`/`real` 上报 `REAL(7)`，不受影响；真正的受害库是**达梦**（`FLOAT` 上报 6，双精度）和 **Oracle**（`FLOAT` 上报 6，二进制精度 126 位） | `JdbcTypes#logical` 改为 `Types.FLOAT → FLOAT64`、`Types.REAL → FLOAT32`（与 JDBC 规范一致：FLOAT 对应 double）。达梦实测：修复前 `FLOAT` 存 `1.23456789012345` 读回 `1.2345679`（Float），修复后读回 `1.23456789012345`（Double），`REAL` 仍为 `1.2345679`。新增单测 `JdbcTypesTest#mapsFloatToFloat64` | 2026-11-06 |
 | C6 | null 绑定沿用**源列**的 `jdbcType` 调 `setNull`，跨库时源类型码在目标驱动上非法 | 改为按「逻辑类型在目标方言下的类型码」绑定：`nullSqlType(field)` 取 `dialect.mapping(...).degradesTo()`（无降级则用逻辑类型本身）对应的 JDBC 码。实测各目标库对全套逻辑类型标准码只有 DB2 拒绝 2013（已有降级逻辑覆盖）。回归：PG `uuid`(1111) → Oracle、SQL Server `nvarchar`(-9) → PostgreSQL 两条链路由失败转成功 | 2026-11-06 |
 | C7 | Oracle `BINARY_FLOAT` / `BINARY_DOUBLE` 被当成 `STRING`。**原判断的机制记错了**：驱动确实上报厂商码 100 / 101，但 SchemaCrawler 未收录这两个码，归一化成 `UNKNOWN`（`Integer.MIN_VALUE`），落进 `JdbcTypes` 的 default 分支才变成 STRING。同一批列的 `FLOAT` 列在驱动侧是 NUMERIC(2)、在 SchemaCrawler 侧是 FLOAT(6)，两套元数据对同一列给出不同逻辑类型 | 新增 `JdbcTypes#logical(int, String)`：先按类型名把 `BINARY_FLOAT` / `BINARY_DOUBLE` 映射到 FLOAT32 / FLOAT64，其余交回按码判定；`DatabaseMetadataService#map` 与 `JdbcQuerySource#readSchema` 两条路径都改用它，UNKNOWN 且仍未识别的类型记 warn 日志（保留 STRING 行为，不静默）。实测 Oracle 23.26：BF→FLOAT32、BD→FLOAT64、FL→FLOAT64，目标 DDL 均为 FLOAT；Oracle→PostgreSQL、Oracle→达梦 两条真实 ETL 链路 `SUCCESS written=1`，落地值 `BF=1.2345679(Float)`、`BD=1.23456789012345(Double)` | 2026-11-07 |
@@ -160,12 +148,13 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 
 **A 组改动的接口影响（2026-11-21 重构为最终形态）**：`Target` 新增 `default void close(boolean commit)`（默认转发给 `close()`，现有外部实现零改动；`close()` 保持抽象）。提交决策在 `EtlTask` 单点完成：`commit = (状态为 SUCCESS/PARTIAL)`，即「读完整且未崩溃」才以 `close(true)` 提交，`FAILED`/`CANCELLED` 以 `close(false)` 只清理。带两阶段语义的目标（JDBC REPLACE 临时表、CSV/XLSX `.part`）据此决定换表/覆盖或保留原数据；实现内部保留 `writeFailed` 安全闩（自身发生过异常时禁止提交，防止吞异常的调用方误提交部分数据）。不经 `EtlTask` 直接 `prepare → write → close` 的调用方行为与最初一致（`close()` 等价 `close(true)` 即提交）。
 
-### 已验证非缺陷（实机推翻原判断）
-| 编号 | 原判断 | 实机结论 | 验证日期 |
+### 已验证非缺陷（实机/静态核验推翻原判断）
+| 编号 | 原判断 | 核验结论 | 验证日期 |
 |---|---|---|---|
 | B6 | 达梦 `SET IDENTITY_INSERT` 可能不接受完整限定名 | **当前实现是对的**。达梦接受完整限定名（带引号 `"SL_B6"."T1"` 与不带引号 `SL_B6.T1` 均可，显式 ID 插入成功）；**反而只给表名 `SET IDENTITY_INSERT T1 ON` 会失败**。原推断方向搞反了 | 2026-10-28 |
 | B7 | GBase 8a 可能不支持 `ALTER TABLE ... RENAME TO`，应改用 `RENAME TABLE a TO b` | **当前实现是对的**。GBase 8a 9.5.3 上 `ALTER TABLE sl_rename_src RENAME TO sl_rename_dst` 执行成功，手册里的 `RENAME TABLE a TO b` 同样成功，两种语法都支持，无需改动 | 2026-10-29 |
 | C5 | `LogicalTypeCatalog#nullable` 用 `rs.getObject(index, Class)`（JDBC 4.1），担心部分国产库老驱动未实现 → `AbstractMethodError` | **6 个真实驱动全部正常**：SQL Server 13.6、DB2 4.34.30、达梦 8、PostgreSQL 42.2.2、GBase 9.5、Oracle 23.26，`getObject(int, Integer.class/BigDecimal.class/Boolean.class)` 均返回正确值。JDBC 4.1 是 Java 7（2011）就引入的接口方法，仓库自带的驱动全部实现，无法复现。残余风险只在 JDK7 之前编译的驱动上，未做防御性改写（改写反而会引入取值语义差异） | 2026-11-06 |
+| D6 | `JdbcDatabaseStatisticsReader` 构造器再包一个 `SingleConnectionDataSource`，与 `JdbcExecutionAdapter` 里的并存 → 「两处各自改 autoCommit 会互相踩」 | **autoCommit 指控不成立（反编译 spring-jdbc 5.3.39 静态核验）**：`SingleConnectionDataSource(Connection, boolean)` 构造路径与 `getConnection()` 均不触碰 autoCommit（`prepareConnection` 只在无参自建连接的 `initConnection()` 里调用，两个包装都只是关闭抑制代理）；真正改 autoCommit 的只有 adapter 侧的 `DataSourceTransactionManager`（batchUpdate 事务内关闭、事务后还原），且 `ConnectionProvider` javadoc 已明确禁止不同任务并发共享 provider。「每次统计调用重复包装 DataSource + 重复读产品名」的浪费属实，不单独立项，并入 E1 统一收敛 | 2026-11-24 |
 
 ---
 
@@ -389,6 +378,42 @@ mvn -o -Pintegration test -Dtest='Db2IntegrationTest,DmIntegrationTest,PostgreSq
 | 单测 | `mvn test` | 142 项通过，1 项跳过；`DialectTest` 新增 `stripsOnlyTheTrailingIdentifierAndIgnoresDotsInsideQuotes` |
 | 现场残留 | `SL_TARGET.USER_INFO_tmp`（3 行，失败时按 `settleReplace` 保留） | **未动**，需人工确认后 `DROP TABLE "SL_TARGET"."USER_INFO_tmp"` 或直接改名为正式表 |
 
+### 2026-11-24 追加（D1 元数据探测路径，7 库）
+
+容器全部为本地 Podman（连接信息走 `.workbuddy/it-env.sh` 环境变量，口令不进源码）：
+
+| 数据库 | 版本 | 驱动 |
+|---|---|---|
+| PostgreSQL 16 | 16.15 | postgresql-42.2.2.jar |
+| MariaDB 11.4 | 11.4.13 | mariadb-java-client-3.5.10.jar |
+| SQL Server 2022 | 16.00.4295 | mssql-jdbc-13.6.0.jre8.jar |
+| DB2 12.1.5.0 | SQL120150 | db2jcc4.jar 4.34.30 |
+| 达梦 DM8 | 8.1.4.170 | DmJdbcDriver8.jar |
+| Oracle 26ai Free | 23.26.3.0.0 | ojdbc8-23.26.3.0.0.jar |
+| GBase 8a | 9.5.3.28 | gbase-connector-java-9.5.0.10.jar |
+
+探针为临时工具 `.workbuddy/tmp/D1Probe.java`（不进版本库），对每库 8~9 类 SQL
+（基础列 / 别名+表达式 / 内层 ORDER BY / 参数化 / 聚合 / CTE / 重复列名 / `SELECT *` / Oracle 厂商类型）
+逐字段比对 `columnLabel`、`columnName`、`columnType`、`typeName`、`precision`、`scale`、`nullable`、`displaySize`。
+四条路径：A=执行原 SQL 取 `rs.getMetaData()`（现状基准）、B=`ps.getMetaData()`、
+C=`SELECT * FROM (<sql>) SL_D1_WRAP WHERE 1=0`、D=`setMaxRows(1)` + 执行原 SQL。
+
+| 项 | 实测结论 |
+|---|---|
+| **台账原修法一 `getMetaData()` 语义一致性** | 56 组中 **54 组与 A 逐字段一致**，含 Oracle `BINARY_FLOAT`/`BINARY_DOUBLE` 厂商码、`NUMBER` 的 -127 scale、DATE→TIMESTAMP（C7/C8/C9 老大难）；参数绑定与否结果相同。**缺口 2 个且都在 CTE**：SQL Server 抛 319（驱动内部改写 SQL 使 `WITH` 不再是语句开头）、GBase 8a 返回 null |
+| 该修法的规范依据 | JDBC 4.1 §6.3 把 `PreparedStatement#getMetaData` 列为 **optional method**；Javadoc 明确允许返回 null、未实现须抛 `SQLFeatureNotSupportedException`，并警告部分驱动内部仍会执行（pgjdbc 走 `LIMIT 0`）。**「不执行且完全一致」不是契约**，不能无条件替换 |
+| **台账原修法二 包一层 `WHERE 1=0` 方言兼容性** | 语法层：派生表别名 MySQL/MariaDB/GBase/SQL Server 强制（`Every derived table must have its own alias` / 1064 / 156），Oracle/DB2/达梦/PG 可省；别名以下划线开头在 DB2（-20521）/Oracle（ORA-00911）非法；内层 `ORDER BY` 被 SQL Server 禁（1033）；重复列名在 5 库失败（8156 / 1060 / -2112 / ORA-00918）；尾部分号 7 库全挂；内层 CTE 被 SQL Server 拒（156） |
+| 包装法的**静默元数据漂移** | 更危险：达梦 `isNullable` 由 0→1（会让目标表丢 `NOT NULL`）、Oracle 聚合列 scale 0→-127（重踩 C8）、MariaDB/GBase `getColumnName` 由底层列名变别名。语法错还能发现，这类不报错的漂移会静默改写 Schema |
+| **选定修法 D `setMaxRows(1)`** | 7 库全部用例与 A **逐字段一致**，零方言、零语义风险；`read()` / `preview()` 的行数语义未变（单测锁定） |
+| 收益实测 | 16384 行大表，只取 metadata 不 `next()`：A 7~17ms → D 0~2ms（GBase 14→0、SQL Server 8~10→1~2、PG 7~9→0~1、MariaDB 7→0 最明显）。MySQL 系「`executeQuery()` 即全量拉内存」的开销确实被挡住 |
+| **调用顺序陷阱** | `setFetchSize(1000)` 必须**先于** `setMaxRows(1)`。反序（先 maxRows 再 fetchSize）在 DB2（-4461）、达梦（HY024/6036）、GBase（`Illegal value for setFetchSize()`）配置阶段直接抛异常；按项目真实顺序 7 库全通过，`getMaxRows()` 均为 1。`JdbcExecutionAdapter#statement()` 现有顺序正确，未改动 |
+| 回归 | `mvn -o test` 156 项通过、1 跳过（G1 的 `@Ignore`）；新增 `JdbcQuerySourceInspectTest` 3 项 |
+
+**结论与决策**：台账原列的两条建议修法**均不可直接采用**——B 需兜底且受驱动能力约束，C 有方言矩阵与静默漂移。
+按评审决策采用最小改动 `setMaxRows(1)`，D1 归「部分解决」：服务端仍执行完整查询计划，
+根治留待 E10（权威 Schema 注入）/ `getMetaData()` 分层方案，不在此条堆叠补丁。
+探针输出：`.workbuddy/tmp/d1-probe2.out`、`d1-order.out`、`d1-maxrows2.out`。
+
 ---
 
 ## 六、需实机验证的条目
@@ -409,10 +434,17 @@ mvn -o -Pintegration test -Dtest='Db2IntegrationTest,DmIntegrationTest,PostgreSq
 
 ## 七、附带说明
 
+- **JDBC 驱动适配的设计边界（2026-11-24 决策）**：项目只在 **API 调用边界**保证行为（语句释放、参数绑定、
+  事务边界、异常转换），**不深入定制各 JDBC 驱动的私有逻辑**（如 MySQL 流式读取的 `Integer.MIN_VALUE`、
+  驱动内部 SQL 改写规避等）。驱动特定的行为差异由调用方通过连接参数自行配置。
+  背景：原 D2 条目（MySQL Connector/J 默认无视 `setFetchSize`，需 URL 带 `useCursorFetch=true`
+  或 `setFetchSize(Integer.MIN_VALUE)` 才生效，否则大结果集全量进内存）因此撤销立项，不作为待办跟踪；
+  该知识点保留在此，调用方遇到 MySQL 大表 OOM 时可按上述参数自行规避。
 - **主键索引过滤的单一落点**：`DatabaseMetadataService#indexes` 是全局唯一过滤点，方言层不再重复实现
   （含「保留名 PRIMARY」与「列集合匹配主键」两项判据）。新增过滤逻辑请放这里，不要放进方言。
 - **默认跑单测时排除集成测试**：`mvn test` 已排除 `**/*IntegrationTest.java` 与 `**/*PerformanceCheck.java`。
-  新增依赖外部数据库的测试必须落到 `integration` 包并以此后缀命名，否则会变成 G1 那样的假红灯。
+  新增依赖外部数据库的测试必须落到 `integration` 包并以此后缀命名，否则本机没库时 `mvn test` 会挂假红灯
+  （原 G1 条目的教训；G 组已于 2026-11-24 整体移除，教训保留在此）。
 
 ---
 
@@ -440,14 +472,14 @@ mvn -o -Pintegration test -Dtest='Db2IntegrationTest,DmIntegrationTest,PostgreSq
 | D5 `commentLiteral` 三份复制 | **E12**（新） | **成立**，且 `viewDefinitionQuery` 也是三份逐字相同（清单未提） |
 | D6 `segments()` 手写切分 | **并入 E11** | **部分成立**：引号内点号确实被破坏；「必须用 Hutool」需先确认 Hutool `split` 能否保留空段，保留不了则手写是功能需要 |
 | D7 构造器冗余 + 返回值丢弃 | **并入 E13** | **成立**（小清理） |
-| D8 单次调用取 3+1 次产品名 | **D9**（新） | **成立** |
+| D8 单次调用取 3+1 次产品名 | **原 D9**（2026-11-24 并入 E8） | **成立** |
 | 卫生：`join()` 死代码 | **E13** | **成立**（全项目零调用） |
 | 卫生：恒等三元分支 | **E13** | **成立**（`:225` 后两个分支相同） |
 | 卫生：`dropTemporaryIfPresent` 查 tmp 删 `writeTable` | 不落条目 | **不成立（已消解）**：HEAD 版本确实存在「查 `temporaryTable()`、删 `writeTable`」的两处来源，但唯一调用点在 `replaceMode` 分支内、两者本就是同一对象，无实际后果；工作区 A1 改动已统一为 `dropIfPresent(writeTable, ...)`（查与删用同一入参） |
-| 卫生：`excelTime` 每次编译正则 | **并入 D9** | **成立**（`excelDate` 同样问题） |
+| 卫生：`excelTime` 每次编译正则 | **并入 E13**（原 D9 已撤销单独立项） | **成立**（`excelDate` 同样问题） |
 | 卫生：`MetadataQuery` 缺 `equals/hashCode` | **E14** | **成立** |
 | 卫生：`getTable` 把 `tablePattern` 当表名 | **E14** | **成立**（同一个参数两种语义） |
-| 卫生：新集成测试 | **G3**（新） | **成立**，且比清单更严重：`TypeBindingProbe` 里是 **8 个库的真实口令**，会随提交进版本库 |
+| 卫生：新集成测试 | **原 G3**（2026-11-24 随 G 组整体移除，未立项） | **成立**，且比清单更严重：`TypeBindingProbe` 里是 **8 个库的真实口令**，会随提交进版本库 |
 | 卫生：台账统计不自洽 | 本次已修正 | **成立**：原「合计 46」与「15+1+28=44」不符 —— B 组小计含 B6/B7 却没算进任何一列，C 组「已解决 9」与归档 8 行不符（多算了 C5）。已在第一节拆出「已验证非缺陷」列并按归档逐行重算 |
 
 **未采纳的建议**：清单要求「不在报告里给定论式重构方案」。本台账对 E8~E14 只登记「问题 + 方向 + 代价」，
