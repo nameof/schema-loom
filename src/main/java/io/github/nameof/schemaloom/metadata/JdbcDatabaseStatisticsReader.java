@@ -23,6 +23,7 @@ final class JdbcDatabaseStatisticsReader {
 
     JdbcDatabaseStatisticsReader(ConnectionProvider provider) {
         this.connection = provider.getConnection();
+        // suppressClose=true：Spring 只管理语句、结果集和事务，不关闭Connection
         this.jdbc = new JdbcTemplate(new SingleConnectionDataSource(connection, true));
         try {
             this.product = connection.getMetaData().getDatabaseProductName();

@@ -90,7 +90,9 @@ public final class JdbcQuerySource implements Source, ReadStatisticsProvider {
     }
 
     private RecordSchema recordSchema() {
-        if (schema == null) schema = execution.query("inspect query", sql, params, fetchSize, null,
+        // 避免 MySQL/GBase 等「executeQuery 即全量拉取结果集」的驱动把整张表搬进内存（D1）。
+        // 这是缓解而非根治，服务端仍执行完整查询计划，只是不再回传全量结果集。
+        if (schema == null) schema = execution.query("inspect query", sql, params, fetchSize, 1,
                 new JdbcExecutionAdapter.ResultSetHandler<RecordSchema>() {
                     public RecordSchema extractData(ResultSet resultSet) throws SQLException {
                         return readSchema(resultSet.getMetaData());
