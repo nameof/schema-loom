@@ -18,7 +18,9 @@ public final class XlsxTarget implements Target {
     private RecordSchema schema;
     private Path part;
     private int rows;
-    /** 本目标发生过写入异常，close 时禁止提交，防止部分数据覆盖正式文件。 */
+    /**
+     * 是否发生过写入异常。仅作为无参 {@link #close()}（调用方未表达提交意图）的保守默认依据；
+     */
     private boolean writeFailed;
     private final int maxRowsPerSheet;
 
@@ -80,19 +82,22 @@ public final class XlsxTarget implements Target {
         }
     }
 
-    /** 直接调用方 close 即提交（AutoCloseable 契约不变）。 */
+    /**
+     * AutoCloseable 隐式入口（try-with-resources 等）：调用方显式表达提交意图时，
+     * 采用保守策略：发生过异常时不提交，否则正常提交。
+     */
     public void close() {
-        close(true);
+        close(!writeFailed);
     }
 
-    /** 关闭工作簿；commit 为 false 或本目标发生过异常时保留 .part，否则用 .part 替换正式文件。 */
+    /** 关闭工作簿；commit 是唯一提交决策点：true 无条件用 .part 替换正式文件，false 保留 .part。 */
     public void close(boolean commit) {
         if (writer == null) return;
         BigExcelWriter current = writer;
         try {
             current.close();
             writer = null;
-            if (commit && !writeFailed)
+            if (commit)
                 Files.move(part, path, StandardCopyOption.REPLACE_EXISTING);
             log.info("XLSX 目标关闭完成 runId={} file={}", LoggingSupport.currentRunId(), path.getFileName());
         } catch (IOException e) {

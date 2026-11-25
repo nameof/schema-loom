@@ -20,8 +20,7 @@ import java.util.*;
  * Schema 自动生成普通表；目标已存在时，{@code APPEND} 只在结构兼容时追加，
  * {@code REPLACE} 会先写入 {@code <目标表>_tmp}，在关闭时通过
  * {@link #close(boolean) close(commit)} 完成换表（原表先改名为 {@code <目标表>_old}，
- * 临时表接位成功后再删除备份）；commit 为 false（任务失败或不完整）或本目标发生过异常时，
- * 只清理临时表、保留原目标表。</p>
+ * 临时表接位成功后再删除备份）；</p>
  *
  * <p>VIEW：只能作为数据只读来源，不能作为 Target 的写入对象。若Target对象已经是 VIEW，准备阶段会失败；
  * 需要在目标库创建 VIEW 定义时，应使用独立的 {@code JdbcViewMigrationTask}，而不是把 VIEW 当普通表写入数据。</p>
@@ -41,7 +40,9 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
     private TableInfo tableInfo;
     private boolean prepared;
     private boolean replaceMode;
-    /** 本目标发生过异常（准备或写入阶段），close 时禁止提交，防止部分数据替换原表。 */
+    /**
+     * 准备或写入阶段是否发生过异常，只作为无参 {@link #close()}（调用方从未表达提交意图）的保守默认依据；
+     */
     private boolean writeFailed;
     /** 实际写入的表（REPLACE 模式下是临时表）是否存在需要显式插入的自增列，决定是否需要 IDENTITY_INSERT。 */
     private boolean writeTableHasIdentity;
@@ -318,25 +319,24 @@ public final class JdbcTableTarget implements Target, WriteStatisticsProvider {
         return LogicalTypeCatalog.get(target == null ? field.getLogicalType() : target).jdbcSqlType();
     }
 
-    /** 直接调用方 close 即提交（AutoCloseable 契约不变）。 */
+    /**
+     * AutoCloseable 隐式入口（try-with-resources 等）：调用方显式表达提交意图时，
+     * 采用保守策略：发生过异常时不提交，否则正常提交。
+     */
     public void close() {
-        close(true);
+        close(!writeFailed);
     }
 
     /**
      * 关闭目标。REPLACE 模式下根据 commit 决定是否换表提交。
      *
-     * <p>commit 为 false（任务失败或不完整）、本目标发生过异常（writeFailed）、或未成功 prepare 时，
-     * 只删除临时表、保留原目标表；否则执行「原表改名备份 → 临时表接位 → 删除备份」的两阶段换表，
-     * 任何一步失败都不会同时丢掉原表与新数据。</p>
-     *
-     * <p>极端场景说明：prepare 抛出非 RuntimeException 的 Throwable（如 Error）时 writeFailed
-     * 不会置位，捕获后仍以提交语义关闭的直接调用方应自行确认写入完整性。</p>
+     * <p>commit 是唯一提交决策点：为 true 时无条件执行两阶段换表——即使此前发生过写入异常（典型场景：上层 {@code ISOLATE_AND_CONTINUE}
+     * 已通过逐行重写恢复，任务以 PARTIAL 语义显式提交）；为 false 只删除临时表、保留原目标表。</p>
      */
     public void close(boolean commit) {
         try {
             if (replaceMode && temporaryCreated) {
-                if (commit && !writeFailed) {
+                if (commit) {
                     swapReplace();
                 } else {
                     try {

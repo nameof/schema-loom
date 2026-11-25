@@ -161,7 +161,7 @@ if (result.getStatus() != EtlStatus.SUCCESS) {
 }
 ```
 
-`JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。`REPLACE` 模式先写入 `<目标表>_tmp`，`close(true)` 时换表（原表改名为 `<目标表>_old`，临时表接位成功后再删备份，失败则回滚并保留临时表）。`EtlTask` 只在任务读完整且未崩溃（`SUCCESS` / `PARTIAL`）时以 `close(true)` 提交；读取失败、中断或读到的行数少于 `count()` 时以 `close(false)` 关闭，只清理临时表、不发生换表。直接调用 `close()` 等价于 `close(true)`，保持既有语义。
+`JdbcTableSource` 支持表和视图读取；`JdbcQuerySource` 仅允许参数化 `SELECT`。目标表不存在时，`JdbcTableTarget.prepare` 会按输入 Schema 建立普通表；目标是视图或结构不兼容时会失败。`REPLACE` 模式先写入 `<目标表>_tmp`，`close(true)` 时换表（原表改名为 `<目标表>_old`，临时表接位成功后再删备份，失败则回滚并保留临时表）。`EtlTask` 只在任务读完整且未崩溃（`SUCCESS` / `PARTIAL`）时以 `close(true)` 提交；读取失败、中断或读到的行数少于 `count()` 时以 `close(false)` 关闭，只清理临时表、不发生换表。直接调用无参 `close()` 时采用保守默认：本目标发生过异常视为 `close(false)`，否则等价 `close(true)`；需要明确提交时请显式调用 `close(true)`。
 
 JDBC Source、Target 和视图迁移在内部使用 Spring JDBC 执行适配层管理参数绑定、语句与结果集释放、异常转换；`JdbcTableTarget` 的每个写入批次使用独立短事务。该实现细节不出现在公共 API 中，LOB 的 `STREAM` 直传尚未开放。
 
@@ -230,8 +230,10 @@ EtlTask task = EtlTask.builder()
 错误策略：
 
 - `FAIL_FAST`：首个转换或写入错误即结束任务。
-- `SKIP_BATCH`：跳过当前批次并继续后续批次。
-- `ISOLATE_AND_CONTINUE`：批量写入失败时回退到逐行写入，尽可能继续处理。
+- `SKIP_BATCH`：跳过当前批次并继续后续批次。与 `REPLACE` 组合时，被丢弃的批次不会出现在换表后的目标表中，任务仍以 `PARTIAL` 结束并提交换表，需通过 `failed` 计数与错误摘要感知整批丢失。
+- `ISOLATE_AND_CONTINUE`：批量写入失败时回退到逐行写入，尽可能继续处理。与 `REPLACE` 组合时，坏行被隔离、好行正常换表提交，目标表即源数据全集去掉坏行。
+
+错误摘要之外，`EtlTask` 的提交决策只看任务状态（`SUCCESS`/`PARTIAL` 即以 `close(true)` 提交），目标实现无条件服从 commit，不会因写入过程中出现过异常而静默放弃换表。
 
 ### 3.5 进度监听和异步执行
 

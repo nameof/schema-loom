@@ -5,7 +5,8 @@
 **更新规则**：每解决一条，把该条从「待办」移到文末「已解决归档」并标注解决日期；部分解决的留在
 「部分解决」区并写明残余问题。待办区里剩下的，一律是还没动的。
 
-**最后更新**：2026-11-24（D1 部分解决：探测 Schema 改用 `setMaxRows(1)`，7 库实机对比后否决台账原列的两条建议修法，残余与依据见第三、五节；同日 D6 经反编译核验为非缺陷，移入已验证非缺陷区；D9 撤销单独立项，产品名重复嗅探并入 E8、正则卫生项并入 E13，待办移除；**G 组整体移除**——G1 已解决归档删除、G2 / G3 未立项即移除；**D2 移除**——项目定位为只保证 API 调用边界，不深入定制各 JDBC 驱动私有逻辑，设计边界记录见第七节附带说明）；
+**最后更新**：2026-11-25（E5 解决：`Target.close(commit)` 删除内部 writeFailed 否决、无条件服从，无参 `close()` 保留保守默认防 try-with-resources 误提交，SKIP_BATCH+REPLACE 经决策维持 PARTIAL 提交并文档化，详见第四节归档）；
+此前 2026-11-24（D1 部分解决：探测 Schema 改用 `setMaxRows(1)`，7 库实机对比后否决台账原列的两条建议修法，残余与依据见第三、五节；同日 D6 经反编译核验为非缺陷，移入已验证非缺陷区；D9 撤销单独立项，产品名重复嗅探并入 E8、正则卫生项并入 E13，待办移除；**G 组整体移除**——G1 已解决归档删除、G2 / G3 未立项即移除；**D2 移除**——项目定位为只保证 API 调用边界，不深入定制各 JDBC 驱动私有逻辑，设计边界记录见第七节附带说明；**E7 移除**——长表名超方言标识符上限属极端场景，暂不投入，聚焦主要问题优化，后续如有人反馈或实际遇到再立项）；
 此前 2026-11-21（A 组提交模型重构为 `close(boolean commit)` 单一决策点，归档与接口影响以最终形态改写；此前同日合并 `8ad61b9f..HEAD` 多库方言补丁集审查结论，逐条核验记录见第八节）
 
 ---
@@ -18,9 +19,9 @@
 | B 各数据库特有分支 | 3 | 1 | 9 | 2 | 15（新增 B14 下推黑白名单相反、B15 视图定义查询无条件大写） |
 | C 类型系统与编解码 | 2 | 0 | 8 | 1 | 11（新增 C10 布尔 DDL 与绑定类型码分裂、C11 coerce 静默收敛） |
 | D 性能与资源 | 3 | 1 | 2 | 1 | 7（D1 部分解决；D6 核验为非缺陷归档；D9 并入 E8 / E13、D2 因项目边界决策移除，待办仅剩 D3 / D5 / D8） |
-| E 设计与耦合 | 10 | 0 | 3 | 0 | 13（新增 E8~E14） |
+| E 设计与耦合 | 8 | 0 | 4 | 0 | 12（新增 E8~E14；E7 移除；E5 解决归档：`close(commit)` 无条件服从 + 无参 `close()` 保守默认） |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 0 | 4 |
-| **合计** | **20** | **2** | **28** | **4** | **54** |
+| **合计** | **19** | **2** | **28** | **4** | **53** |
 
 > 2026-11-21 修正计数口径：原表「已解决 28」把 C5 算进去了，而归档表实际只有 27 行；
 > B 组小计把 B6 / B7 算进小计却没算进任何一列，导致「合计 46」与「15+1+28=44」对不上。
@@ -85,9 +86,7 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
 | E1 | 全局 | `loader → provider → connection → source/target → task` 五层套娃（README 自己的「优化 TODO」第一条）。同一连接被 `SingleConnectionDataSource` 包了 2-3 次（含 D6 核验后并入的统计 reader 重复包装：`getTableStatistics`/`getSchemaStatistics` 每次调用都新建包装并重复读产品名） | 合并 provider/connection 层，DataSource 只包装一次 | 推断 |
-| E5 | `EtlTask` + REPLACE 模式 | `ISOLATE_AND_CONTINUE` 降级逐行后，只要有 1 行坏数据 → `write()` 抛错 → `targetWriteFailed=true` → close 删临时表 → **整表迁移作废**。两个特性语义上互斥，当前没有提示 | REPLACE 模式下禁用 `ISOLATE_AND_CONTINUE`，或文档明示互斥 | 推断 |
 | E6 | `DatabaseMetadataService#listTables`(72) vs `#sqlPattern`(251-260) | 表名转正则用 `replace("%",".*").replace("_",".")`，**没有 `Pattern.quote`**；同文件 `sqlPattern()` 却做了 quote → 两套标准。2026-11-21 补充两条后果：①`_` 被当成「任意一个字符」而不是字面下划线 —— 项目自己的测试表就叫 `user_info`，下推路径（`sqlPattern`）与本地过滤路径（第 72 行）因此不是同一批表，`user_info` 会额外命中 `userXinfo` 之类；②表名含 `.` `(` `[` 时误匹配或 `PatternSyntaxException` | 用 `Pattern.quote` 转义字面部分；最好让下推与本地过滤**共用同一个** `sqlPattern()` 实现，避免再次分裂 | 推断 |
-| E7 | `JdbcTableTarget` 的 `_tmp` / `_old` 影子表命名 | 直接拼后缀，不校验目标方言的标识符长度：Oracle 30 字符上限下，`<表名>` 只要超过 25 个字符，REPLACE 就会因临时表名超长直接失败（A1 改动后 `_old` 同样） | 命名加长度约束：超长时截断并追加短哈希，或统一走一个 `shadowName(table, suffix)` 工厂，由方言给出长度上限 | 推断 |
 | E8 | `DatabaseType`（无字段）、`AbstractDialect#supportsEmptySchemaSegment`(45, `protected`)、`DatabaseMetadataService`(179-184 / 211-215 / 220-225 / 340-345 / 379-382)、`MetadataQuery`(25-42) | 方言能力知识**三处分裂**：①枚举只有名字，没有「是否三级命名 / 是否接受空模式段 / 名字别名」等字段；②`supportsEmptySchemaSegment` 是 `protected`，metadata 包调不到，只能在本地用产品名字符串重新判断；③同一「达梦」在不同处写成 `"dm dbms"` 与 `"dm"` 两种形态，各自靠 `contains` 撞运气。后果：每新增一个库种，能力判断要在 4~6 处同步改，漏一处就是「某库偶发查不到表」。根因是 `DatabaseMetadataService` 只收 `ConnectionProvider`，拿不到 `DatabaseType` | 给 `DatabaseType` 加能力字段（或由 `DialectRegistry` 暴露 `DialectCapabilities`），`DatabaseMetadataService` 改为接收方言 / 类型，不再自己嗅探产品名。B14 / B15 是它的下游；2026-11-24 起原 D9 的产品名重复嗅探（一次 `listTables` 取 3 次 + `enrichGeneratedColumns` 每表 1 次）也并入本条，随本条修复自然消解 | 实证 |
 | E9 | `DatabaseMetadataService`（486 行，全部 7 类职责） | 七类职责混在一个类：SchemaCrawler 兼容（`System.setProperty` + 进程级锁）、下推策略、命名空间正则、类型归一、精度修正、生成列旁路 SQL、索引/外键/约束映射。附带 R7：`UNKNOWN_TYPE_NUMBER = Integer.MIN_VALUE`(33 / 304) 直接依赖 SchemaCrawler 对未收录类型的**内部约定值**，升级 SchemaCrawler 后「未识别类型」唯一的可观测点（warn）会静默失效 | 至少拆成 MetadataLoader（crawl + 兼容）/ MetadataFilter（下推与匹配）/ TableInfoMapper（归一与映射）/ GeneratedColumns 四块；UNKNOWN 判据改成自证条件（`JdbcTypes` 认不出且类型名不在白名单），不依赖魔法值 | 实证 |
 | E10 | `JdbcTableSource#align`(201-209)、`JdbcQuerySource#readSchema`(108-121)、`JdbcTableSource#ensureTableInfo`(126-131) | 双元数据源（驱动 `ResultSetMetaData` vs SchemaCrawler 表元数据）只在出口打补丁。`align` 按**位置**而非列名对齐委托记录：列少补 null、列多直接丢弃，同类型列错位时 `DataRecord` 校验完全无声 → 可能静默写错整列。`SELECT *` 目前能保证顺序一致，所以尚未构造出触发场景，但这是安全缺口，且与 `FieldMapping#mapRecord`（按名取值）风格相反。每行还背着 3 次 `DataRecord` 构造 / 3 次 List 拷贝 / 2 次 `coerce` 的固定开销 | 给 `JdbcQuerySource` 加「权威 Schema」入口（传入表元数据 Schema，按列名映射而非下标），`align` 退化为断言；做不到时至少在 `align` 校验列名序列一致，不一致显式失败 | 实证（代码行为已确认，触发场景未构造，见第六节） |
@@ -145,8 +144,11 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | B13 | `OracleDialect` 没有覆盖 `renameTableSql`，落到 `AbstractDialect` 的默认实现（新名原样拼接全限定名）。而 `JdbcTableTarget` 传的正是 `quote()` 后的 `"SCHEMA"."TABLE"` → Oracle 的 `RENAME TO` 只接受裸表名，REPLACE 换表必报 **ORA-14047**（"ALTER TABLE\|INDEX RENAME 不能与其他分区组合"，措辞误导，实为语法拒绝），临时表接位与备份/回滚三步全部失效 | 默认实现改为「新名只取最后一段」（`lastIdentifier`），Oracle 因此自动继承正确行为；同时把分散在 `PostgreSqlDialect` / `KingbaseDialect` / `Db2Dialect` 的三份 `lastIdentifier` 副本和 `DmDialect#extractTableName`（不识别引号内的点号）全部下沉到 `AbstractDialect`，Pg / Kingbase / 达梦删除各自的重复 override。`DialectTest` 的 rename 断言改用**限定名入参**（原用例只传裸名，正好绕开 `JdbcTableTarget` 的真实调用形态，所以一直没被抓到） | 2026-11-11（Oracle 26ai Free 23.26 实机复现 + 端到端验证，见第五节） |
 | D4 | `JdbcViewMigrator#migrate` 的 finally 里 `target.close()` 在前，抛异常时 sourceProvider 永远不关（连接泄漏） | 抽出 `closeQuietly(AutoCloseable)`：每个资源独立 try/catch，关闭失败只记告警，不遮蔽其余资源与 try 块原始异常；新增 `JdbcViewMigratorTest` 断言「前一个 close 抛异常时后续资源仍被关闭」 | 2026-11-23 |
 | E12 | `MySqlDialect` / `MariaDbDialect` / `GBase8aDialect` 的 `commentLiteral`、`viewDefinitionQuery` 等逐字重复（B10 需三处同改） | 抽 `MySqlFamilyDialect` 收口家族共性（引用符 / 默认值 / 自增 / 改表名 / 表注释 / 视图查询 / 类型映射表），差异改用 `decimalPrecisionCap()` / `booleanMapping()` / `stringDdlType()` 钩子；MySQL、MariaDB 退化为空子类，GBase 8a 只留 identity 开关与生成列报错 | 2026-11-23 |
+| E5 | A 组重构后前提已变：目标内部 `writeFailed` 闩在批次失败时置位、`ISOLATE_AND_CONTINUE` 降级逐行恢复也不清除 → `EtlTask` 判 PARTIAL 以 `close(true)` 显式提交时被闩静默否决，临时表删除、整表迁移作废，而 `EtlResult` 仍报 PARTIAL（提交语义）——双决策点复发且状态说谎。`SKIP_BATCH` 同病（整批丢弃后闩拦截换表，同样静默） | 提交契约收敛两层（评审决策）：①`close(boolean)` 删除闩否决，**无条件服从**调用方 commit——显式传参即唯一决策点；②无参 `close()`（AutoCloseable 隐式入口，调用方从未表达意图）保留保守默认 `close(!writeFailed)`，try-with-resources 异常收尾不会提交半截数据。`JdbcTableTarget` / `XlsxTarget` 同构改造，`Target` 接口 javadoc 固化两层契约；`SKIP_BATCH`+`REPLACE` 经决策维持 PARTIAL 提交（整批丢失由 `failed` 计数与错误摘要感知），README / PUBLIC_API_GUIDE 补组合语义说明。主代码核对：无参 `close()` 在主代码 0 调用（`EtlTask` 恒用 `close(commit)`）。新增回归 `replaceCloseWithExplicitCommitSwapsDespiteEarlierWriteFailure`（H2：写失败置闩 → 好行重写 → 显式 `close(true)`，修复前 `expected:<fine> but was:<keep>` 实证缺陷、修复后换表成功），全量单测无回归 | 2026-11-25（H2 实机复现 + 回归） |
 
 **A 组改动的接口影响（2026-11-21 重构为最终形态）**：`Target` 新增 `default void close(boolean commit)`（默认转发给 `close()`，现有外部实现零改动；`close()` 保持抽象）。提交决策在 `EtlTask` 单点完成：`commit = (状态为 SUCCESS/PARTIAL)`，即「读完整且未崩溃」才以 `close(true)` 提交，`FAILED`/`CANCELLED` 以 `close(false)` 只清理。带两阶段语义的目标（JDBC REPLACE 临时表、CSV/XLSX `.part`）据此决定换表/覆盖或保留原数据；实现内部保留 `writeFailed` 安全闩（自身发生过异常时禁止提交，防止吞异常的调用方误提交部分数据）。不经 `EtlTask` 直接 `prepare → write → close` 的调用方行为与最初一致（`close()` 等价 `close(true)` 即提交）。
+**2026-11-25 修订（E5）**：安全闩的否决权从 `close(boolean)` 移除——显式传入的 commit 被无条件服从，不再被内部状态静默否决（吞异常的上层以 PARTIAL 显式提交属合法决策，见归档）；无参 `close()` 作为 AutoCloseable 隐式入口改为保守默认 `close(!writeFailed)`（发生过异常视为不提交），不再是「等价 `close(true)`」，try-with-resources 异常收尾路径因此保留原数据。
+**2026-11-25 补充（接口卫生）**：`close(boolean)` 的 `default` 转发实现移除、改为抽象方法——E5 修订后默认转发会把 `close(true)` 路由进保守默认的 `close()`，等于接口自带一个违反「无条件服从」契约的实现样例；库内全部实现（JDBC / XLSX / CSV / Memory 及测试桩）均已显式覆写，外部只实现 `close()` 的自定义 Target 会编译期报错（显式破坏优于静默语义漂移）。
 
 ### 已验证非缺陷（实机/静态核验推翻原判断）
 | 编号 | 原判断 | 核验结论 | 验证日期 |
@@ -311,7 +313,7 @@ mvn -o -Pintegration test -Dtest='OracleVendorTypeProbeIntegrationTest'
 `JdbcTableTarget#close` 条件为 4 布尔组合，且 `abort()` 先于 `close()` 的时序耦合漏调即静默提交。重构为
 `Target#close(boolean commit)`：`close()` 保持抽象并等价 `close(true)`（直接调用方兼容不变），`EtlTask` 以
 `commit = (状态为 SUCCESS/PARTIAL)` 单点决策；abort 模型从未提交发布，归档直接以最终形态记录。
-PARTIAL 保持提交（维持既有语义，E5 继续挂账）。单元测试（H2 `MODE=MySQL` + 目标桩）：
+PARTIAL 保持提交（维持既有语义；E5 于 2026-11-25 解决归档：闩否决权从 `close(boolean)` 移除，详见第四节）。单元测试（H2 `MODE=MySQL` + 目标桩）：
 
 ```bash
 mvn -o test -Dtest='EtlTaskTest,JdbcTableTargetContractTest,XlsxBoundaryTest,CsvBoundaryTest'
@@ -424,7 +426,7 @@ C=`SELECT * FROM (<sql>) SL_D1_WRAP WHERE 1=0`、D=`setMaxRows(1)` + 执行原 S
 |---|---|---|
 | B1 | MySQL/MariaDB 上 SchemaCrawler 是否把主键索引暴露到 `table.getIndexes()`。**H2 上实测不会**（SchemaCrawler 自行排除）→ 那么 B1 描述的「必报 `CREATE INDEX PRIMARY`」可能压根不可复现 | 找台 MySQL，读 `TableInfo#getIndexes()` 看有没有名为 PRIMARY 的行 |
 | B10 | MySQL 系真实库上，注释里的反斜杠转义是否如预期 | MariaDB 容器已就绪（`schema-loom-mariadb-it`，localhost:13306，root/Root_IT_2026），建一个注释含 `\` 的表跑迁移即可 |
-| A 组回归 | 提交流程（close 即提交 + `<表>_old` 备份换表）在**尚未跑通**的方言上的 rename 行为：Oracle 30 字符标识符上限（表名 + `_old` / `_tmp` 可能超长）、SQL Server `sp_rename`（三段名丢库段）、MariaDB / GBase | DB2 / 达梦 / PostgreSQL / Oracle（2026-11-11，B13）已验证通过（见第五节）。2026-11-14 回退为 close 即提交后，DB2 / 达梦 / PostgreSQL 复验连续两遍通过、`_old` 无残留。剩余：SQL Server（需先修 B12）、MariaDB / GBase；顺带确认长表名场景行为（E7） |
+| A 组回归 | 提交流程（close 即提交 + `<表>_old` 备份换表）在**尚未跑通**的方言上的 rename 行为：Oracle 30 字符标识符上限（表名 + `_old` / `_tmp` 可能超长）、SQL Server `sp_rename`（三段名丢库段）、MariaDB / GBase | DB2 / 达梦 / PostgreSQL / Oracle（2026-11-11，B13）已验证通过（见第五节）。2026-11-14 回退为 close 即提交后，DB2 / 达梦 / PostgreSQL 复验连续两遍通过、`_old` 无残留。剩余：SQL Server（需先修 B12）、MariaDB / GBase |
 | B14 | KingbaseES 上 `includeTables` 下推是否真的会像 Oracle 那样被插件误解析（决定 B14 是「已发生」还是「潜在」） | 起 KingbaseES 容器，建 `user_info` 后跑 `listTables`：`%` / `S%` / 精确表名 / `%USER%` 四种模式对比条数；再设 `SC_WITHOUT_DATABASE_PLUGIN=postgresql` 复跑一次 |
 | B15 | 加引号的小写视图名能否被 `viewDefinitionQuery` 查到（三个方言各一次） | DB2：`CREATE VIEW "v_lower" AS SELECT 1 AS c FROM SYSIBM.SYSDUMMY1`，再走 `JdbcViewMigrator#migrate("\"v_lower\"", ...)`，看是否报 `view definition is unavailable`；达梦 / Oracle 同理（Oracle 用 `"v_lower"`） |
 | C10 | 19c 及更早的 ojdbc 上，对 `NUMBER(1)` 列执行 `setNull(Types.BOOLEAN=16)` / `setBoolean` 是否被拒 | 起 Oracle 19c 容器，`CREATE TABLE t(b NUMBER(1))`，分别跑 `ps.setNull(1,16)`、`ps.setBoolean(1,true)`、`ps.setNull(1,4)` 三组，记录 ORA 码 |

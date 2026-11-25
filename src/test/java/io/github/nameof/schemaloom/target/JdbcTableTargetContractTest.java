@@ -125,6 +125,35 @@ public class JdbcTableTargetContractTest {
         after.close();
     }
 
+    /**
+     * E5 复现/回归：显式 close(true) 必须无条件服从——模拟 ISOLATE_AND_CONTINUE 降级场景
+     * （坏行写失败置闩，好行重写成功）后，显式提交必须换表，不得被内部 writeFailed 静默否决。
+     */
+    @Test public void replaceCloseWithExplicitCommitSwapsDespiteEarlierWriteFailure() throws Exception {
+        JdbcTableTarget target = target("replace_explicit_commit", "CREATE TABLE orders (old_value VARCHAR(10))", "INSERT INTO orders VALUES ('keep')");
+        RecordSchema writeSchema = new RecordSchema(Collections.singletonList(
+                new FieldSchema("old_value", LogicalType.STRING, false, 10, null, null)));
+        target.prepare(SchemaDescriptor.of(writeSchema), TargetMode.REPLACE);
+        try {
+            // 坏行：违反 NOT NULL，write 抛异常并置位内部闩
+            target.write(new RecordBatch(writeSchema,
+                    Collections.singletonList(new DataRecord(writeSchema, Collections.<Object>singletonList(null)))));
+            fail("expected write failure");
+        } catch (SchemaLoomException expected) {
+            // 上层（EtlTask ISOLATE_AND_CONTINUE）捕获后降级逐行重写
+        }
+        target.write(new RecordBatch(writeSchema,
+                Collections.singletonList(new DataRecord(writeSchema, Collections.<Object>singletonList("fine")))));
+        // EtlTask 判 PARTIAL 后以 close(true) 显式提交：必须换表，目标表 = 好行全集
+        target.close(true);
+        Connection after = DriverManager.getConnection("jdbc:h2:mem:replace_explicit_commit;MODE=MySQL;DB_CLOSE_DELAY=-1");
+        assertEquals(1, count(after, "ORDERS"));
+        assertEquals(0, count(after, "ORDERS_TMP"));
+        assertEquals(0, count(after, "ORDERS_OLD"));
+        assertEquals("fine", singleValue(after, "SELECT old_value FROM orders"));
+        after.close();
+    }
+
     @Test public void replaceWriteFailureCleansTemporaryAndKeepsOldTable() throws Exception {
         JdbcTableTarget target = target("replace_failure", "CREATE TABLE orders (old_value VARCHAR(10) NOT NULL)");
         RecordSchema writeSchema = new RecordSchema(Collections.singletonList(new FieldSchema("id", LogicalType.INT32, false, null, null, null)));

@@ -64,6 +64,8 @@ JDBC Source 与 Target 在内部通过 Spring JDBC 执行适配层统一管理�
 
 支持 `FAIL_FAST`、`SKIP_BATCH`、`ISOLATE_AND_CONTINUE` 三种策略。建议在 Builder 中显式设置策略；使用 `ISOLATE_AND_CONTINUE` 时，批次失败会回退到逐行写入，尽可能定位坏数据并继续处理。
 
+`REPLACE` 与失败策略的组合语义：`ISOLATE_AND_CONTINUE` 降级逐行后，坏行被隔离、好行全部写入，任务以 `PARTIAL` 结束并正常换表提交——目标表即「源数据全集去掉坏行」；`SKIP_BATCH` 丢弃整批后任务同样以 `PARTIAL` 结束并换表提交，被丢弃的批次不会出现在换表后的目标表中，需通过 `EtlResult` 的 `failed` 计数与错误摘要感知。两种组合的行级/批级丢失都由所选策略明示，`Target.close(commit)` 无条件服从 commit，不会在内部静默否决换表。
+
 `EtlResult` 的状态为 `SUCCESS`、`PARTIAL`、`FAILED` 或 `CANCELLED`；错误摘要最多保留 100 条，并对常见密码字段做脱敏处理。
 
 提交是失败安全的一侧：只有源声明的行数全部读到、且目标提交成功才可能是 `SUCCESS`。源读取抛异常、任务被中断、读到的行数少于 `count()` 声明的值，都会以 `close(false)` 关闭目标放弃提交并把状态记为 `FAILED`——`REPLACE` 因此不会用半份数据替换正式表。
@@ -474,8 +476,8 @@ public final class MySource implements Source {
 - `RecordBatch` 中的记录必须使用同一个 `RecordSchema`。
 - `Target.prepare` 必须先于 `write` 调用。
 - `write` 返回实际成功和失败的数量；不可恢复的错误通过异常报告。
-- `Target.close` 是提交点：带两阶段语义的目标（临时表、`.part`）在 `close(boolean commit)` 时按 commit 决定「换表 / 覆盖正式文件」还是只做清理。`EtlTask` 以 `commit = 状态为 SUCCESS/PARTIAL` 单点决策并传给 `close`；不经 `EtlTask` 的直接调用方调 `close()`，等价于 `close(true)` 即提交，与最初行为一致。
-- 重写 `close(boolean)` 的实现不得反过来调用 `close()`（会无限递归），应由 `close()` 一行委托 `close(true)`；`close` 应可重复调用，并释放连接、文件句柄等资源；commit 为 false 时不得改动已有数据。
+- `Target.close` 是提交点：带两阶段语义的目标（临时表、`.part`）在 `close(boolean commit)` 时按 commit 决定「换表 / 覆盖正式文件」还是只做清理。`EtlTask` 以 `commit = 状态为 SUCCESS/PARTIAL` 单点决策并传给 `close`；commit 是唯一决策点，实现必须无条件服从，不得依据内部失败状态否决。不经 `EtlTask` 的直接调用方调无参 `close()` 时，采用保守默认：本目标发生过异常视为 `close(false)`，否则等价 `close(true)`——try-with-resources 的异常收尾路径因此不会提交半截数据。
+- 重写 `close(boolean)` 的实现不得反过来调用 `close()`（会无限递归），应由 `close()` 委托 `close(!writeFailed)` 这类保守默认；`close` 应可重复调用，并释放连接、文件句柄等资源；commit 为 false 时不得改动已有数据。
 - 不需要注册 SPI、`ServiceLoader` 或框架上下文。
 
 ## 数据类型归一化

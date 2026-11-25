@@ -96,7 +96,6 @@ public final class CsvTarget implements Target {
         }
     }
 
-    /** 直接调用方 close 即提交（AutoCloseable 契约不变）。 */
     public void close() {
         close(true);
     }

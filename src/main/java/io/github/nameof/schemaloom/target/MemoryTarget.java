@@ -35,4 +35,8 @@ public final class MemoryTarget implements Target {
 
     public void close() {
     }
+
+    /** 无提交语义，commit 不影响行为。 */
+    public void close(boolean commit) {
+    }
 }
