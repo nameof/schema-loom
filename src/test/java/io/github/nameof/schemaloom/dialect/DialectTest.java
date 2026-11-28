@@ -312,7 +312,8 @@ public class DialectTest {
         io.github.nameof.schemaloom.driver.DatabaseConnectionInfo oracle =
                 new io.github.nameof.schemaloom.driver.DatabaseConnectionInfo(DatabaseType.ORACLE, "host", 1521,
                         "db", null, "APP", "APP", "password", null, null);
-        assertEquals(Arrays.<Object>asList("APP", "ORDERS_VIEW"), registry.get(DatabaseType.ORACLE)
+        // 视图名与 owner 按入参原样使用（B5/B15 分层：大写化由输入层 normalizeIdentifier 负责），不再在方言层改写大小写
+        assertEquals(Arrays.<Object>asList("APP", "orders_view"), registry.get(DatabaseType.ORACLE)
                 .viewDefinitionQuery(oracle, new QualifiedTableName(null, null, "orders_view")).getParameters());
         ViewDefinitionQuery sqlServerQuery = registry.get(DatabaseType.SQL_SERVER)
                 .viewDefinitionQuery(oracle, new QualifiedTableName(null, "dbo", "orders_view"));

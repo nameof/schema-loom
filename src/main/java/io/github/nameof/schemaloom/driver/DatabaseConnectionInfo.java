@@ -54,12 +54,8 @@ public class DatabaseConnectionInfo {
     public String getDriverId() { return driverId; }
     public Properties getProperties() { Properties p = new Properties(); p.putAll(properties); return p; }
     /**
-     * 构造目标表限定名。DB2 / 达梦未加引号的标识符按大写存储，因此用户输入的表名在此规范化为大写，
-     * 保证迁移后的对象不带引号也能被查到。
-     * <p>
-     * 方言的 {@code quote()} 不再改写大小写（否则库里已存在的加引号小写对象会找不到），
-     * 规范化职责由这里承担：使用者若需要精确命中库里的大小写敏感对象，
-     * 用双引号包裹传入（{@code "\"mytable\""}）即可跳过规范化。
+     * 构造目标表限定名。DB2 / 达梦 / Oracle 未加引号的标识符在此规范化为大写，保证表名不带引号也能被查到。
+     * 使用者若需要精确命中库里的大小写敏感对象，用双引号包裹传入（{@code "\"mytable\""}）即可跳过规范化。
      */
     public QualifiedTableName table(String table) {
         return new QualifiedTableName(catalog, schema, normalizeIdentifier(table));
@@ -75,9 +71,9 @@ public class DatabaseConnectionInfo {
         return uppercasesIdentifiers() ? trimmed.toUpperCase(Locale.ENGLISH) : trimmed;
     }
 
-    /** DB2 / 达梦的未加引号标识符按大写存储。 */
+    /** DB2 / 达梦 / Oracle 的未加引号标识符按大写存储。 */
     private boolean uppercasesIdentifiers() {
-        return databaseType == DatabaseType.DB2 || databaseType == DatabaseType.DM;
+        return databaseType == DatabaseType.DB2 || databaseType == DatabaseType.DM || databaseType == DatabaseType.ORACLE;
     }
 
     @Override public String toString() {

@@ -40,7 +40,7 @@ final class OracleDialect extends AbstractDialect {
         String owner = view.getSchema() == null ? source.getSchema() : view.getSchema();
         if (owner == null) throw new IllegalArgumentException("Oracle view migration requires a source schema");
         return new ViewDefinitionQuery("SELECT TEXT FROM ALL_VIEWS WHERE OWNER = ? AND VIEW_NAME = ?",
-                Arrays.<Object>asList(owner.toUpperCase(Locale.ENGLISH), view.getTable().toUpperCase(Locale.ENGLISH)));
+                Arrays.asList(owner, view.getTable()));
     }
 
     private java.util.Map<LogicalType, DatabaseTypeMapping> mappings() {

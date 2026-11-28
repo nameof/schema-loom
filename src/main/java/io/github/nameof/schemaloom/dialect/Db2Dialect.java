@@ -44,10 +44,10 @@ final class Db2Dialect extends AbstractDialect {
         // 让查询在所有 schema 中查找视图（视图名在 schema 内唯一，跨表不会冲突）。
         if (schema != null) {
             return new ViewDefinitionQuery("SELECT TEXT FROM SYSCAT.VIEWS WHERE VIEWSCHEMA = ? AND VIEWNAME = ?",
-                    Arrays.asList(schema.toUpperCase(Locale.ENGLISH), view.getTable().toUpperCase(Locale.ENGLISH)));
+                    Arrays.asList(schema, view.getTable()));
         } else {
             return new ViewDefinitionQuery("SELECT TEXT FROM SYSCAT.VIEWS WHERE VIEWNAME = ?",
-                    Arrays.asList(view.getTable().toUpperCase(Locale.ENGLISH)));
+                    Arrays.asList(view.getTable()));
         }
     }
 

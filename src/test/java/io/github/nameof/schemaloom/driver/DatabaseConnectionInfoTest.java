@@ -23,7 +23,7 @@ public class DatabaseConnectionInfoTest {
     }
 
     @Test public void normalizesIdentifierCaseForUppercaseDatabases() {
-        // DB2 / 达梦未加引号的标识符按大写存储，用户输入的表名规范化为大写
+        // DB2 / 达梦 / Oracle 未加引号的标识符按大写存储，用户输入的表名规范化为大写
         DatabaseConnectionInfo db2 = new DatabaseConnectionInfo(DatabaseType.DB2, "host", 50000, "BLUDB", "u", "p");
         assertEquals("ORDERS", db2.table("orders").getTable());
         // 已被引号包裹表示调用方要精确保留大小写，用于命中库里已存在的大小写敏感对象
@@ -31,6 +31,9 @@ public class DatabaseConnectionInfoTest {
         DatabaseConnectionInfo dm = new DatabaseConnectionInfo(DatabaseType.DM, "host", 5236, "SYSDBA", "u", "p");
         assertEquals("ORDERS", dm.table("orders").getTable());
         assertEquals("orders", dm.table("\"orders\"").getTable());
+        DatabaseConnectionInfo oracle = new DatabaseConnectionInfo(DatabaseType.ORACLE, "host", 1521, "FREEPDB1", "u", "p");
+        assertEquals("ORDERS", oracle.table("orders").getTable());
+        assertEquals("orders", oracle.table("\"orders\"").getTable());
         // 其它数据库保持原样
         DatabaseConnectionInfo mysql = new DatabaseConnectionInfo(DatabaseType.MYSQL, "host", 3306, "db", "u", "p");
         assertEquals("orders", mysql.table("orders").getTable());
