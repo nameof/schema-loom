@@ -348,6 +348,7 @@ public final class Binding {
 - 现状：无论对象是否加引号创建，查询 `ALL_VIEWS`/`SYSCAT.VIEWS` 时视图名一律 `toUpperCase` → 用引号建的小写视图名**永远查不到**，视图迁移静默失败
 - 改为：走 `identifiers().unquotedCase()`，仅"未加引号"语义下折叠
 - 判定为**行为修正**而非重构，因为它会改变"加引号小写视图"的结果。第 7 章白名单里单列，并要求补一条集成用例
+- **2026-11-28 已由 B15 增量修复先行落地**（ISSUE_TRACKER B15 归档）：三个方言的 `viewDefinitionQuery` 去掉 `toUpperCase`、`uppercasesIdentifiers()` 补入 Oracle，未走 profile 化路径。本节剩下的仅是「实现方式迁到 profile」的等价重构，不再有行为变更；P2 描述中的「视图名去大写」部分视为已完成
 
 ---
 

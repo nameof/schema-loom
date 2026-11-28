@@ -214,15 +214,29 @@ public final class DatabaseMetadataService {
         return !product.toLowerCase(Locale.ENGLISH).contains("oracle");
     }
 
-    /** SchemaCrawler 对 PostgreSQL/DB2 会要求额外 connector；通用 JDBC 模式无需上层配置。 */
+    /**
+     * 让部分库型绕开 SchemaCrawler 的数据库插件，回退到通用 JDBC 枚举（{@code SC_WITHOUT_DATABASE_PLUGIN}）：
+     * <ul>
+     *   <li>PostgreSQL / KingbaseES / DB2：SchemaCrawler插件要求额外 connector 配置，回退 JDBC 模式开箱即用；</li>
+     *   <li>SQL Server：SchemaCrawler使用插件获取元数据的扫描范围是「全部非系统库」且无视JDBC URL 的 databaseName，master 等系统库
+     *       下的表永远查不到。
+     *       通用 JDBC 的 {@code getTables} 则会正常跟随当前连接库，
+     *       注意通用模式会把 sys / INFORMATION_SCHEMA 一并枚举，由 schema 下推
+     *       （{@link #pushesSchemaFilter} 放行 sql server）与下游精确匹配兜住。</li>
+     * </ul>
+     */
     private Catalog loadCatalogWithCompatibility(ConnectionProvider provider,
                                                    schemacrawler.schemacrawler.SchemaCrawlerOptions options) throws Exception {
         String product = productName(provider);
         String productLower = product == null ? "" : product.toLowerCase(Locale.ENGLISH);
-        boolean needsPluginWorkaround = productLower.contains("postgresql") || productLower.contains("db2") || productLower.contains("kingbase");
+        boolean needsPluginWorkaround = productLower.contains("postgresql") || productLower.contains("db2")
+                || productLower.contains("kingbase") || productLower.contains("sql server");
         if (!needsPluginWorkaround)
             return SchemaCrawlerUtility.getCatalog(connectionSource(provider), options);
-        String pluginName = productLower.contains("db2") ? "db2" : productLower.contains("kingbase") ? "postgresql" : "postgresql";
+        String pluginName;
+        if (productLower.contains("db2")) pluginName = "db2";
+        else if (productLower.contains("sql server")) pluginName = "sqlserver";
+        else pluginName = "postgresql";
         synchronized (SCHEMA_CRAWLER_COMPATIBILITY_LOCK) {
             String previous = System.getProperty(WITHOUT_DATABASE_PLUGIN_PROPERTY);
             try {

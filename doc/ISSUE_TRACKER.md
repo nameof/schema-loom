@@ -5,7 +5,9 @@
 **更新规则**：每解决一条，把该条从「待办」移到文末「已解决归档」并标注解决日期；部分解决的留在
 「部分解决」区并写明残余问题。待办区里剩下的，一律是还没动的。
 
-**最后更新**：2026-11-25（E5 解决：`Target.close(commit)` 删除内部 writeFailed 否决、无条件服从，无参 `close()` 保留保守默认防 try-with-resources 误提交，SKIP_BATCH+REPLACE 经决策维持 PARTIAL 提交并文档化，详见第四节归档）；
+**最后更新**：2026-11-28（B12 解决：SQL Server 加入 `SC_WITHOUT_DATABASE_PLUGIN` 旁路，元数据枚举回归「跟随连接库」语义；根因实测推翻「疑似用登录默认库」的原猜测——插件枚举全部非系统库、无视连接库，master 永不可见，详见第四、五节）；
+此前 2026-11-28（B15 解决：三库实机复现后按「方言层不再改写大小写、大写化收敛到输入层 `normalizeIdentifier`」修复，Oracle 补入输入层大写化名单，详见第四节归档与第五节 2026-11-28 追加）；
+此前 2026-11-25（E5 解决：`Target.close(commit)` 删除内部 writeFailed 否决、无条件服从，无参 `close()` 保留保守默认防 try-with-resources 误提交，SKIP_BATCH+REPLACE 经决策维持 PARTIAL 提交并文档化，详见第四节归档）；
 此前 2026-11-24（D1 部分解决：探测 Schema 改用 `setMaxRows(1)`，7 库实机对比后否决台账原列的两条建议修法，残余与依据见第三、五节；同日 D6 经反编译核验为非缺陷，移入已验证非缺陷区；D9 撤销单独立项，产品名重复嗅探并入 E8、正则卫生项并入 E13，待办移除；**G 组整体移除**——G1 已解决归档删除、G2 / G3 未立项即移除；**D2 移除**——项目定位为只保证 API 调用边界，不深入定制各 JDBC 驱动私有逻辑，设计边界记录见第七节附带说明；**E7 移除**——长表名超方言标识符上限属极端场景，暂不投入，聚焦主要问题优化，后续如有人反馈或实际遇到再立项）；
 此前 2026-11-21（A 组提交模型重构为 `close(boolean commit)` 单一决策点，归档与接口影响以最终形态改写；此前同日合并 `8ad61b9f..HEAD` 多库方言补丁集审查结论，逐条核验记录见第八节）
 
@@ -16,12 +18,12 @@
 | 分组 | 待办 | 部分解决 | 已解决 | 已验证非缺陷 | 小计 |
 |---|---|---|---|---|---|
 | A 数据丢失 / 状态误报 | 0 | 0 | 4 | 0 | 4 |
-| B 各数据库特有分支 | 3 | 1 | 9 | 2 | 15（新增 B14 下推黑白名单相反、B15 视图定义查询无条件大写） |
+| B 各数据库特有分支 | 1 | 1 | 11 | 2 | 15（B15 视图定义查询无条件大写、B12 SQL Server 插件枚举无视连接库均已于 2026-11-28 解决归档） |
 | C 类型系统与编解码 | 2 | 0 | 8 | 1 | 11（新增 C10 布尔 DDL 与绑定类型码分裂、C11 coerce 静默收敛） |
 | D 性能与资源 | 3 | 1 | 2 | 1 | 7（D1 部分解决；D6 核验为非缺陷归档；D9 并入 E8 / E13、D2 因项目边界决策移除，待办仅剩 D3 / D5 / D8） |
 | E 设计与耦合 | 8 | 0 | 4 | 0 | 12（新增 E8~E14；E7 移除；E5 解决归档：`close(commit)` 无条件服从 + 无参 `close()` 保守默认） |
 | F 元数据与文档不一致 | 2 | 0 | 2 | 0 | 4 |
-| **合计** | **19** | **2** | **28** | **4** | **53** |
+| **合计** | **17** | **2** | **30** | **4** | **53** |
 
 > 2026-11-21 修正计数口径：原表「已解决 28」把 C5 算进去了，而归档表实际只有 27 行；
 > B 组小计把 B6 / B7 算进小计却没算进任何一列，导致「合计 46」与「15+1+28=44」对不上。
@@ -29,12 +31,11 @@
 
 **建议处理顺序**
 
-1. **正确性优先**：B12（SQL Server 按表名查询落空）、**B15**（小写视图迁移必失败）
-2. **先验证再动手**：B14（KingbaseES 表名下推未实测）、C10（老版 ojdbc 布尔 null 绑定未验证）、
+1. **先验证再动手**：B14（KingbaseES 表名下推未实测）、C10（老版 ojdbc 布尔 null 绑定未验证）、
    E10（位置对齐未构造出触发场景）—— 见第六节
-3. **结构性重构**：E8 → E9 → E10 → E11 / E12（E8 是 B14 / B15 的共同根因，D9 的产品名重复嗅探也已并入本条，
+2. **结构性重构**：E8 → E9 → E10 → E11 / E12（E8 是 B14 / B15 的共同根因，D9 的产品名重复嗅探也已并入本条，
    不收敛就会继续按补丁堆叠）
-4. **D / F / 小清理**（E13 / E14）可批量做
+3. **D / F / 小清理**（E13 / E14）可批量做
 
 > A 组已于 2026-11-11 解决，2026-11-21 重构为「`close(boolean commit)` 单一决策点」模型
 > （abort 负向标记从未提交发布，直接以最终形态归档），详见第四节归档。
@@ -60,9 +61,9 @@
 
 | 编号 | 位置 | 问题与后果 | 建议修法 | 依据 |
 |---|---|---|---|---|
-| B12 | `DatabaseMetadataService#catalog` + SQL Server | 连到 `master` 的会话，SchemaCrawler 只返回 1 张表且是 `dbo.user_info`（该表实际在 `sl_source` 库），master 里真实存在的 12 张 `sl_*` 表一张都没返回；`listTables` 用 `sl%`、`sl_null_src` 等模式一律 0 张 → 按表名查询落空，SQL Server 作为 Source/Target 时目标表被判为「不存在」。**改动前基线同样复现**，不是 C7/B11 改动引入 | 先确认 SchemaCrawler SQL Server 插件用哪个 catalog 枚举表（疑似用登录默认库或扫描到的第一个库，而非连接的当前库）；必要时与 Oracle 一致，在 SQL Server 上不依赖插件枚举，或显式指定 catalog | **实证**：SQL Server 2022 容器，`SELECT DB_NAME()` 返回 master，`listTables('%')` 只返回 dbo.user_info |
 | B14 | `DatabaseMetadataService#pushesTableFilter`(211-215) / `#pushesSchemaFilter`(179-184) / `MetadataQuery#fromConnectionInfo`(35-38) | 同一件事两套相反策略：表名下推是**黑名单**（产品名不含 oracle 就放行），schema 下推是**白名单**（只放 sql server / `dm dbms` / db2）。KingbaseES 会被放行做表名下推，而同文件 `MetadataQuery` 自己写着「KingbaseES 兼容 PostgreSQL 但 SchemaCrawler 的 schema 模式匹配不兼容」。后果：KingbaseES 上 `includeTables` 一旦像 Oracle 那样被插件误解析，精确表名查询就会落空 → 目标表被判为不存在、重复建表（与 B11 同一类致命路径）。两处对「读不到产品名」的处理也不一致（表名侧放行、schema 侧保守） | 把「能否下推表名 / schema」收敛成同一份方言能力表（见 E8）；KingbaseES 在未实测前按 Oracle 处理（不下推表名），读不到产品名时统一按「不下推」保守处理 | **存疑**：策略相反已实证；KingbaseES 的实际后果未实机验证 |
-| B15 | `Db2Dialect#viewDefinitionQuery`(46-50)、`DmDialect#viewDefinitionQuery`(41-42)、`OracleDialect#viewDefinitionQuery`(42-43) | B5 让 `quote()` 不再改写大小写，并在 `DatabaseConnectionInfo#normalizeIdentifier`(68-76) 留了「双引号包裹即精确保留大小写」的逃生口；但读视图定义时仍无条件 `toUpperCase` 去查 `SYSCAT.VIEWS` / `ALL_VIEWS`。用 `"myview"` 传入时表数据路径能取到对象、视图迁移路径查不到 → `JdbcViewMigrator#readDefinition` 抛「view definition is unavailable」（错误信息指向「检查权限」，误导）。同一决策只落了一半，三个方言同病 | 视图名与 owner 一律按入参原样使用，不再大写；需要「未加引号即大写」的场景由 `normalizeIdentifier` 在输入层完成 —— 与 B5 的分层保持一致 | **推断**：B5 已实证「加引号小写对象只能精确大小写访问」，本机容器未启动，未实机复跑 |
+
+> B12（SQL Server 按表名查询落空）已于 2026-11-28 解决归档，见第四节；本组待办仅剩 B14。
 
 ### C 组：类型系统与编解码
 
@@ -90,7 +91,7 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | E8 | `DatabaseType`（无字段）、`AbstractDialect#supportsEmptySchemaSegment`(45, `protected`)、`DatabaseMetadataService`(179-184 / 211-215 / 220-225 / 340-345 / 379-382)、`MetadataQuery`(25-42) | 方言能力知识**三处分裂**：①枚举只有名字，没有「是否三级命名 / 是否接受空模式段 / 名字别名」等字段；②`supportsEmptySchemaSegment` 是 `protected`，metadata 包调不到，只能在本地用产品名字符串重新判断；③同一「达梦」在不同处写成 `"dm dbms"` 与 `"dm"` 两种形态，各自靠 `contains` 撞运气。后果：每新增一个库种，能力判断要在 4~6 处同步改，漏一处就是「某库偶发查不到表」。根因是 `DatabaseMetadataService` 只收 `ConnectionProvider`，拿不到 `DatabaseType` | 给 `DatabaseType` 加能力字段（或由 `DialectRegistry` 暴露 `DialectCapabilities`），`DatabaseMetadataService` 改为接收方言 / 类型，不再自己嗅探产品名。B14 / B15 是它的下游；2026-11-24 起原 D9 的产品名重复嗅探（一次 `listTables` 取 3 次 + `enrichGeneratedColumns` 每表 1 次）也并入本条，随本条修复自然消解 | 实证 |
 | E9 | `DatabaseMetadataService`（486 行，全部 7 类职责） | 七类职责混在一个类：SchemaCrawler 兼容（`System.setProperty` + 进程级锁）、下推策略、命名空间正则、类型归一、精度修正、生成列旁路 SQL、索引/外键/约束映射。附带 R7：`UNKNOWN_TYPE_NUMBER = Integer.MIN_VALUE`(33 / 304) 直接依赖 SchemaCrawler 对未收录类型的**内部约定值**，升级 SchemaCrawler 后「未识别类型」唯一的可观测点（warn）会静默失效 | 至少拆成 MetadataLoader（crawl + 兼容）/ MetadataFilter（下推与匹配）/ TableInfoMapper（归一与映射）/ GeneratedColumns 四块；UNKNOWN 判据改成自证条件（`JdbcTypes` 认不出且类型名不在白名单），不依赖魔法值 | 实证 |
 | E10 | `JdbcTableSource#align`(201-209)、`JdbcQuerySource#readSchema`(108-121)、`JdbcTableSource#ensureTableInfo`(126-131) | 双元数据源（驱动 `ResultSetMetaData` vs SchemaCrawler 表元数据）只在出口打补丁。`align` 按**位置**而非列名对齐委托记录：列少补 null、列多直接丢弃，同类型列错位时 `DataRecord` 校验完全无声 → 可能静默写错整列。`SELECT *` 目前能保证顺序一致，所以尚未构造出触发场景，但这是安全缺口，且与 `FieldMapping#mapRecord`（按名取值）风格相反。每行还背着 3 次 `DataRecord` 构造 / 3 次 List 拷贝 / 2 次 `coerce` 的固定开销 | 给 `JdbcQuerySource` 加「权威 Schema」入口（传入表元数据 Schema，按列名映射而非下标），`align` 退化为断言；做不到时至少在 `align` 校验列名序列一致，不一致显式失败 | 实证（代码行为已确认，触发场景未构造，见第六节） |
-| E11 | `DatabaseConnectionInfo#normalizeIdentifier/uppercasesIdentifiers`(64-81)、`SqlServerDialect#unquoteQualifiedName/segments/lastSegment`(54-91) | 标识符处理散落在 3~4 处且互不知情：①连接配置类承担了「DB2 / 达梦大写」的方言知识，引号字符硬编码 `"`；②只规范化 table 段，catalog / schema 段原样透传；③`SqlServerDialect` 自己一套「先剥引号再切分」，`"a.b"."t"` 被切成 `a.b.t` 三段再取 `b.t` —— 引号内点号的保护正好在切分前被销毁；④B13 已把 `lastIdentifier` 下沉到 `AbstractDialect`，SqlServer 仍在用自带的 `lastSegment`。D6「该用 Hutool」的指控需先确认 Hutool `split` 能否保留空段（能则一并替换） | 抽一个 Identifier 工具（quote / unquote / split 保空段 / lastSegment / 大小写策略），方言只声明 `quoteChar` 与大小写策略；`normalizeIdentifier` 下沉到方言层 | 实证（Hutool 替换可行性待确认） |
+| E11 | `DatabaseConnectionInfo#normalizeIdentifier/uppercasesIdentifiers`(64-81)、`SqlServerDialect#unquoteQualifiedName/segments/lastSegment`(54-91) | 标识符处理散落在 3~4 处且互不知情：①连接配置类承担了「DB2 / 达梦 / Oracle 大写」的方言知识，引号字符硬编码 `"`（B15 已把 Oracle 补入大写化名单）；②只规范化 table 段，catalog / schema 段原样透传；③`SqlServerDialect` 自己一套「先剥引号再切分」，`"a.b"."t"` 被切成 `a.b.t` 三段再取 `b.t` —— 引号内点号的保护正好在切分前被销毁；④B13 已把 `lastIdentifier` 下沉到 `AbstractDialect`，SqlServer 仍在用自带的 `lastSegment`。D6「该用 Hutool」的指控需先确认 Hutool `split` 能否保留空段（能则一并替换） | 抽一个 Identifier 工具（quote / unquote / split 保空段 / lastSegment / 大小写策略），方言只声明 `quoteChar` 与大小写策略；`normalizeIdentifier` 下沉到方言层 | 实证（Hutool 替换可行性待确认） |
 | E13 | `DatabaseMetadataService#join`(262-269)、`#loadCatalogWithCompatibility`(225)、`JdbcTableTarget` 构造器(53-82) | 小清理集合：①`join()` 全项目零调用（死代码）；②`contains("db2") ? "db2" : contains("kingbase") ? "postgresql" : "postgresql"` 后两个分支相同，恒等三元让人误以为有第三种取值；③`JdbcTableTarget(provider, info, table, type)` 里 `info` 已含 `type`，两处可能不一致；④`openValidated` 里 `info.table(table)` 只为校验、返回值被丢弃，紧接着构造器又调一次；⑤（2026-11-24 原并入 D9）`LogicalTypeCatalog#excelTime` / `#excelDate` 用 `String.matches(...)`，每次调用重新编译同一个正则 | 删 `join`；三元压平成二分支；构造器去掉 `type` 参数（取 `info.getDatabaseType()`）；校验与构造复用同一次 `table()` 结果；正则提为 `static final Pattern` | 实证 |
 | E14 | `MetadataQuery`（无 `equals/hashCode/toString`）、`DatabaseMetadataService#getTable(provider, MetadataQuery)`(93-97) | `getTable` 把 `query.getTablePattern()` 当**精确表名**用（`equalsIgnoreCase` 比较），而 `listTables` 把同一个参数当 **LIKE 模式**；传 `S%` 给 `getTable` 会得到「table not found」而不是「参数非法」。`MetadataQuery` 又缺 `equals/hashCode/toString`，作值对象在日志和测试断言里只能看到对象地址 | `getTable` 显式拒绝含 `%` / `_` 的模式，或改收 `QualifiedTableName`；补 `equals/hashCode/toString` | 实证 |
 
@@ -145,6 +146,8 @@ C1~C9 已处理完（C5 实机验证为非缺陷），明细见第四节归档�
 | D4 | `JdbcViewMigrator#migrate` 的 finally 里 `target.close()` 在前，抛异常时 sourceProvider 永远不关（连接泄漏） | 抽出 `closeQuietly(AutoCloseable)`：每个资源独立 try/catch，关闭失败只记告警，不遮蔽其余资源与 try 块原始异常；新增 `JdbcViewMigratorTest` 断言「前一个 close 抛异常时后续资源仍被关闭」 | 2026-11-23 |
 | E12 | `MySqlDialect` / `MariaDbDialect` / `GBase8aDialect` 的 `commentLiteral`、`viewDefinitionQuery` 等逐字重复（B10 需三处同改） | 抽 `MySqlFamilyDialect` 收口家族共性（引用符 / 默认值 / 自增 / 改表名 / 表注释 / 视图查询 / 类型映射表），差异改用 `decimalPrecisionCap()` / `booleanMapping()` / `stringDdlType()` 钩子；MySQL、MariaDB 退化为空子类，GBase 8a 只留 identity 开关与生成列报错 | 2026-11-23 |
 | E5 | A 组重构后前提已变：目标内部 `writeFailed` 闩在批次失败时置位、`ISOLATE_AND_CONTINUE` 降级逐行恢复也不清除 → `EtlTask` 判 PARTIAL 以 `close(true)` 显式提交时被闩静默否决，临时表删除、整表迁移作废，而 `EtlResult` 仍报 PARTIAL（提交语义）——双决策点复发且状态说谎。`SKIP_BATCH` 同病（整批丢弃后闩拦截换表，同样静默） | 提交契约收敛两层（评审决策）：①`close(boolean)` 删除闩否决，**无条件服从**调用方 commit——显式传参即唯一决策点；②无参 `close()`（AutoCloseable 隐式入口，调用方从未表达意图）保留保守默认 `close(!writeFailed)`，try-with-resources 异常收尾不会提交半截数据。`JdbcTableTarget` / `XlsxTarget` 同构改造，`Target` 接口 javadoc 固化两层契约；`SKIP_BATCH`+`REPLACE` 经决策维持 PARTIAL 提交（整批丢失由 `failed` 计数与错误摘要感知），README / PUBLIC_API_GUIDE 补组合语义说明。主代码核对：无参 `close()` 在主代码 0 调用（`EtlTask` 恒用 `close(commit)`）。新增回归 `replaceCloseWithExplicitCommitSwapsDespiteEarlierWriteFailure`（H2：写失败置闩 → 好行重写 → 显式 `close(true)`，修复前 `expected:<fine> but was:<keep>` 实证缺陷、修复后换表成功），全量单测无回归 | 2026-11-25（H2 实机复现 + 回归） |
+| B15 | `Db2Dialect#viewDefinitionQuery` / `DmDialect#viewDefinitionQuery` / `OracleDialect#viewDefinitionQuery` 无条件 `toUpperCase` 查 `SYSCAT.VIEWS` / `ALL_VIEWS`，B5 留下的「双引号包裹精确保留大小写」逃生口在视图迁移路径失效：加引号小写视图 `"v_lower"` 迁移必失败，报「view definition is unavailable; verify metadata permissions」（误导，非权限问题）。**2026-11-28 三库实机复现（DB2 / 达梦 / Oracle，正向对照未加引号视图全部通过）**，由推断升级实证 | 与 B5 分层对齐：①三个方言的 `viewDefinitionQuery` 视图名与 owner 一律按入参原样使用，删除 `toUpperCase`；②台账原建议的缺口补上——`DatabaseConnectionInfo#uppercasesIdentifiers()` 原本只覆盖 DB2 / DM，**Oracle 补入**（Oracle 未加引号标识符本就按大写存储，此前靠方言层 `toUpperCase` 顶替输入层职责，直接删方言大写化会使 Oracle 未加引号小写输入回退）。同步调整 `DialectTest#bindsViewNamespaceAsParameters`（Oracle 断言改为原样传递）与 `DatabaseConnectionInfoTest`（补 Oracle 大写化 / 引号逃生口用例）。新增回归 `ViewDefinitionCaseProbeIntegrationTest`（三库 × 正向对照 + 加引号小写场景）。全量单测 152 项通过；`Db2IntegrationTest` / `DmIntegrationTest` / `OracleEtlIntegrationTest` 回归通过。与 DESIGN_REFACTOR.md P2「视图名去大写」方向一致（profile 化部分仍留待 E8 / 重构） | 2026-11-28（DB2 / 达梦 / Oracle 实机复现 + 修复验证） |
+| B12 | SQL Server 连接会话落在 `master` 时，SchemaCrawler SQL Server 插件只返回 `sl_source` / `sl_target` 库的 `user_info`，master 里真实存在的 12 张 `sl_*` 表一张不可见；`sl%`、精确表名查询全部 0 张 → 按表名查询落空，SQL Server 作为 Source/Target 时目标表被判「不存在」、ETL 不可用。**2026-11-28 复测实证根因，原「疑似用登录默认库」猜测被推翻**：插件枚举「全部非系统库」且无视连接 URL 的 databaseName（连 master、连 sl_source 返回结果完全相同），master 等系统库永不出现 | `DatabaseMetadataService#loadCatalogWithCompatibility` 把 SQL Server 加入 `SC_WITHOUT_DATABASE_PLUGIN=sqlserver` 旁路（与 PostgreSQL / KingbaseES / DB2 同机制）：通用 JDBC `getTables` 跟随当前连接库，master / sl_source 实测与驱动原始元数据完全一致。原台账建议的 includeCatalogs 下推方案被实测否决——插件根本不枚举 master，下推只会把「返回错表」变成「返回空表」，救不了 B12 原始症状。旁路代价：通用模式经 `getCatalogs()` 枚举全部库且会把 sys / INFORMATION_SCHEMA 一并枚举（无过滤全量 630 张），由 schema 下推（`pushesSchemaFilter` 放行 sql server）与下游精确匹配兜住；主流程带 catalog 的查询（`config.table(...)` 路径）经 `namespacePattern` 精确锁定不受影响。回归：`SqlServerEtlIntegrationTest` 2/2（用例零改动，硬编码 `catalog=master` 断言通过，IDENTITY / 计算列 / REPLACE / 表与视图 APPEND 迁移全绿）、新增回归探针 `SqlServerB12ProbeIntegrationTest` 3/3、TypeBindingProbe 15/15（含 SQL Server 类型绑定 / null 矩阵 / 跨库 ETL）、全量套件 56 项除 Oracle 环境问题（见第五节）外全绿 | 2026-11-28（SQL Server 2022 容器实机复现 + 修复验证） |
 
 **A 组改动的接口影响（2026-11-21 重构为最终形态）**：`Target` 新增 `default void close(boolean commit)`（默认转发给 `close()`，现有外部实现零改动；`close()` 保持抽象）。提交决策在 `EtlTask` 单点完成：`commit = (状态为 SUCCESS/PARTIAL)`，即「读完整且未崩溃」才以 `close(true)` 提交，`FAILED`/`CANCELLED` 以 `close(false)` 只清理。带两阶段语义的目标（JDBC REPLACE 临时表、CSV/XLSX `.part`）据此决定换表/覆盖或保留原数据；实现内部保留 `writeFailed` 安全闩（自身发生过异常时禁止提交，防止吞异常的调用方误提交部分数据）。不经 `EtlTask` 直接 `prepare → write → close` 的调用方行为与最初一致（`close()` 等价 `close(true)` 即提交）。
 **2026-11-25 修订（E5）**：安全闩的否决权从 `close(boolean)` 移除——显式传入的 commit 被无条件服从，不再被内部状态静默否决（吞异常的上层以 PARTIAL 显式提交属合法决策，见归档）；无参 `close()` 作为 AutoCloseable 隐式入口改为保守默认 `close(!writeFailed)`（发生过异常视为不提交），不再是「等价 `close(true)`」，try-with-resources 异常收尾路径因此保留原数据。
@@ -418,6 +421,48 @@ C=`SELECT * FROM (<sql>) SL_D1_WRAP WHERE 1=0`、D=`setMaxRows(1)` + 执行原 S
 
 ---
 
+### 2026-11-28 追加（B15 视图定义查询大小写，DB2 / 达梦 / Oracle 三库）
+
+容器：`schema-loom-db2-it`（15000/BLUDB）、`schema-loom-dm-it`（15236/SYSDBA）、`schema-loom-oracle-it`（1521/FREEPDB1/SCHEMALOOM）。
+探针 `ViewDefinitionCaseProbeIntegrationTest`：每库先建未加引号视图做正向对照，再建加引号小写视图 `"v_lower"` 走 `JdbcViewMigrationTask` 迁移。
+
+| 项 | 修复前 | 修复后 |
+|---|---|---|
+| 正向对照（未加引号视图） | 三库全部 SUCCESS（输入层大写化 / 大写输入兜底） | 三库全部 SUCCESS，行为不变 |
+| 加引号小写视图 `"v_lower"` | 三库全部 FAILED：`view-migration: view definition is unavailable; verify metadata permissions`（误导，非权限问题） | 三库全部 SUCCESS，`"v_lower_tgt"` 建成并可查询 |
+| 结论 | B15 由「推断」升级「实证」，三库同病坐实 | 修复有效；`Db2IntegrationTest` / `DmIntegrationTest` / `OracleEtlIntegrationTest` 回归通过 |
+
+**环境备注**（下次直接照做）：
+
+- `.workbuddy/it-env.sh` 的 Oracle / 达梦凭据已过期（`sl_source` 用户已不存在，FREEPDB1 现存自建用户为 `SCHEMALOOM` / `SL_TARGET`；达梦 `SYSDBA_PWD=Sysdba001`、Oracle `ORACLE_PWD=Oracle_IT_2026`、DB2 `DB2INST1_PASSWORD` 均可由 `podman inspect` 从容器 Config.Env 读到，测试时以进程级环境变量注入即可，不必改文件）。文件本身 2026-11-28 10:54 被外部改写过一次（DB2 段缺失、达梦变量名带 X 后缀），来历未明，使用前先核对。
+
+---
+
+### 2026-11-28 追加（B12 SQL Server 插件枚举无视连接库）
+
+容器：`schema-loom-sqlserver-it`（SQL Server 2022，127.0.0.1:11433，sa 登录，库 master / sl_source / sl_target）。
+探针 `SqlServerB12ProbeIntegrationTest`（3 用例，连接信息走 `SCHEMALOOM_IT_SQLSERVER_*` 环境变量）：驱动原始 getTables、SchemaCrawler 插件枚举、项目 API 三路对比 + `SC_WITHOUT_DATABASE_PLUGIN=sqlserver` 旁路验证。
+
+**Ground truth**：master 20 张表（`sl_*` / `schemaloom_*` 测试表 + 系统表），`user_info` 在 sl_source / sl_target。
+
+**三路对比（修复前）**：
+
+| 路径 | 连 master | 连 sl_source（对照组） |
+|---|---|---|
+| 驱动原始 `getTables`（显式 catalog） | master 20 张，准确 | sl_source 3 张，准确 |
+| SchemaCrawler 插件枚举 | `sl_source.user_info` + `sl_target.user_info` 共 2 张，master 不可见 | **完全相同的 2 张** |
+| 项目 API（`sl%` / `sl_null_src`） | 0 张 → `table not found` | — |
+
+对照组结果与连 master 时相同 → 插件枚举「全部非系统库」、无视连接库，原「疑似用登录默认库或扫描到的第一个库」猜测推翻。另实测：catalog=`sl_source` 显式下推可精确命中 1 张；catalog=`master` 下推直接抛 SchemaCrawler 异常。
+
+**旁路验证**：`SC_WITHOUT_DATABASE_PLUGIN=sqlserver` 后 master 全部可见（与驱动原始元数据一致）；通用模式经 `getCatalogs()` 枚举全部库（无过滤全量 630 张，含 sys / INFORMATION_SCHEMA，需 schema 下推与下游精确匹配兜住）。
+
+**修复后回归（全量 `mvn -o -Pintegration test`，56 项）**：`SqlServerEtlIntegrationTest` 2/2（用例零改动，硬编码 `catalog=master` 断言通过，IDENTITY / 计算列 / REPLACE / 表与视图 APPEND 迁移全绿）、B12 探针 3/3、TypeBindingProbe 15/15（含 SQL Server 类型绑定 / null 矩阵 / SQL Server→PG 跨库）、DB2 / 达梦 / PG / DialectBehaviorProbe / ViewDefinitionCaseProbe 全部通过。唯一失败 `OracleEtlIntegrationTest` 2 项 ORA-01017：容器内 `sqlplus` 以 `SCHEMALOOM/SCHEMALOOM` 直连同报登录拒绝，`git stash` 回基线复跑同样 2 项失败，**确认与本修复无关**（SCHEMALOOM 账号凭据失效，属环境问题，同日 SQL Server 口令漂移同类；`SCHEMALOOM_IT_ORACLE_PASSWORD` 未对齐容器实际 `ORACLE_PWD`，下次跑 Oracle ETL 前先核对）。
+
+**环境备注**：`.workbuddy/it-env.sh` 的 `SCHEMALOOM_IT_SQLSERVER_PASSWORD` 与容器实际 `MSSQL_SA_PASSWORD` 不一致（21 位 vs 19 位），2026-11-28 已按容器实际口令对齐（同日 Oracle 凭据漂移同款问题，见上方 B15 环境备注）。
+
+---
+
 ## 六、需实机验证的条目
 
 以下条目的结论来自语法规范推导，**没有在真实数据库上复现过**。动手改之前先确认，避免改了不存在的 BUG。
@@ -428,7 +473,6 @@ C=`SELECT * FROM (<sql>) SL_D1_WRAP WHERE 1=0`、D=`setMaxRows(1)` + 执行原 S
 | B10 | MySQL 系真实库上，注释里的反斜杠转义是否如预期 | MariaDB 容器已就绪（`schema-loom-mariadb-it`，localhost:13306，root/Root_IT_2026），建一个注释含 `\` 的表跑迁移即可 |
 | A 组回归 | 提交流程（close 即提交 + `<表>_old` 备份换表）在**尚未跑通**的方言上的 rename 行为：Oracle 30 字符标识符上限（表名 + `_old` / `_tmp` 可能超长）、SQL Server `sp_rename`（三段名丢库段）、MariaDB / GBase | DB2 / 达梦 / PostgreSQL / Oracle（2026-11-11，B13）已验证通过（见第五节）。2026-11-14 回退为 close 即提交后，DB2 / 达梦 / PostgreSQL 复验连续两遍通过、`_old` 无残留。剩余：SQL Server（需先修 B12）、MariaDB / GBase |
 | B14 | KingbaseES 上 `includeTables` 下推是否真的会像 Oracle 那样被插件误解析（决定 B14 是「已发生」还是「潜在」） | 起 KingbaseES 容器，建 `user_info` 后跑 `listTables`：`%` / `S%` / 精确表名 / `%USER%` 四种模式对比条数；再设 `SC_WITHOUT_DATABASE_PLUGIN=postgresql` 复跑一次 |
-| B15 | 加引号的小写视图名能否被 `viewDefinitionQuery` 查到（三个方言各一次） | DB2：`CREATE VIEW "v_lower" AS SELECT 1 AS c FROM SYSIBM.SYSDUMMY1`，再走 `JdbcViewMigrator#migrate("\"v_lower\"", ...)`，看是否报 `view definition is unavailable`；达梦 / Oracle 同理（Oracle 用 `"v_lower"`） |
 | C10 | 19c 及更早的 ojdbc 上，对 `NUMBER(1)` 列执行 `setNull(Types.BOOLEAN=16)` / `setBoolean` 是否被拒 | 起 Oracle 19c 容器，`CREATE TABLE t(b NUMBER(1))`，分别跑 `ps.setNull(1,16)`、`ps.setBoolean(1,true)`、`ps.setNull(1,4)` 三组，记录 ORA 码 |
 | E10 | `align` 的位置对齐是否能被真实场景触发（决定它是「潜在」还是「已有 BUG」） | 构造列顺序与 SchemaCrawler 不一致的对象：视图里 `SELECT b, a FROM t` 让驱动顺序 ≠ DDL 顺序；或临时改 `listTables` 的列排序后跑 `JdbcTableSource#read`，看是否整列错位且无异常 |
 

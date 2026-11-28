@@ -27,6 +27,9 @@ abstract class AbstractDialect implements DatabaseDialect {
      * （SQL Server 实测报 {@code Invalid object name}）。这类方言用「空模式段」表达
      * 「库 + 默认 schema」，见 {@link #supportsEmptySchemaSegment()}。
      * </p>
+     * <p>
+     * 此外，quote不负责表名大小写的转换，不同数据库对大小写的行为不一致，由{@code DatabaseConnectionInfo.table}构造的QualifiedTableName统一处理
+     * </p>
      */
     @Override
     public String quote(QualifiedTableName table) {
